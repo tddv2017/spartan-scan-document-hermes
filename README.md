@@ -68,42 +68,33 @@ hermes_vision_extractor/
 
 ## 3. Yêu Cầu Hệ Thống & Hướng Dẫn Cài Đặt
 
-### Yêu Cầu Môi Trường:
-- **Hệ Điều Hành:** Windows 10 hoặc Windows 11 (64-bit).
-- **Python:** Python 3.12+ (đã tích hợp sẵn `pip` và `tcl/tk`).
-- **Font Chữ:** Font hệ thống Windows chuẩn (`C:\Windows\Fonts\arial.ttf` & `arialbd.ttf`).
-
-### Các Bước Cài Đặt:
-
-1. **Mở terminal (PowerShell hoặc Command Prompt) tại thư mục dự án:**
-   ```powershell
-   cd f:\Development\plan\hermes_vision_extractor
-   ```
-
-2. **Cài đặt các gói phụ thuộc qua `requirements.txt`:**
-   ```powershell
-   & "C:\Users\Dung\AppData\Local\Programs\Python\Python312\python.exe" -m pip install -r requirements.txt
-   ```
-   *(Hoặc nếu dùng môi trường Python mặc định trên máy: `python -m pip install -r requirements.txt`)*
-
-3. **Chạy kiểm tra chẩn đoán toàn bộ phân hệ (Self-Diagnostic):**
-   ```powershell
-   & "C:\Users\Dung\AppData\Local\Programs\Python\Python312\python.exe" main.py --test-pipeline
-   ```
-   Nếu xuất hiện thông báo:  
-   `Diagnostic test completed successfully! All subsystems functional.`  
-   nghĩa là hệ thống đã sẵn sàng 100% để vận hành.
+### Cách 1: Chạy Ngay Với File `.exe` (Khuyên Dùng - Không Cần Cài Python)
+Ứng dụng đã được đóng gói sẵn thành file chạy độc lập nằm trong thư mục `dist/`:
+- Đường dẫn: **`dist/HermesVisionExtractor.exe`**
+- **Chỉ cần nhấp đúp chuột (Double Click)** vào file `HermesVisionExtractor.exe` là có thể sử dụng ngay lập tức trên mọi máy tính Windows 10/11 64-bit mà không cần cài đặt bất kỳ phần mềm hay thư viện nào!
 
 ---
 
-## 4. Hướng Dẫn Vận Hành Ứng Dụng (User Manual)
+### Cách 2: Chạy Từ Mã Nguồn Python (Dành Cho Lập Trình Viên)
+Yêu cầu môi trường:
+- **Hệ Điều Hành:** Windows 10 hoặc Windows 11 (64-bit).
+- **Python:** Python 3.12+ (đã tích hợp sẵn `pip` và `tcl/tk`).
 
-### 4.1. Khởi Chạy Ứng Dụng
-Để khởi động Hermes Vision Extractor, chạy lệnh:
-```powershell
-& "C:\Users\Dung\AppData\Local\Programs\Python\Python312\python.exe" main.py
-```
-*(Nếu muốn mở đồng thời cả Nút Bấm Nổi và Cửa Sổ Quản Lý ngay từ đầu, thêm cờ: `--show-manager`)*
+1. **Cài đặt các gói phụ thuộc qua `requirements.txt`:**
+   ```powershell
+   & "C:\Users\Dung\AppData\Local\Programs\Python\Python312\python.exe" -m pip install -r requirements.txt
+   ```
+
+2. **Khởi chạy ứng dụng:**
+   ```powershell
+   & "C:\Users\Dung\AppData\Local\Programs\Python\Python312\python.exe" main.py
+   ```
+   *(Thêm cờ `--show-manager` nếu muốn mở trực tiếp cửa sổ quản lý ca trực).*
+
+3. **Chạy kiểm tra chẩn đoán hệ thống (Self-Diagnostic):**
+   ```powershell
+   & "C:\Users\Dung\AppData\Local\Programs\Python\Python312\python.exe" main.py --test-pipeline
+   ```
 
 ---
 
@@ -125,15 +116,22 @@ Khi ứng dụng khởi chạy, một thanh công cụ nổi (Pill Widget) nhỏ
 
 ---
 
-### 4.3. Kích Hoạt Qua Phím Tắt Toàn Cục (Global Hotkeys)
-Người dùng đang làm việc trực tiếp trong phần mềm Hermes CMS không cần chuyển chuột:
-- Nhấn phím **`F9`** bất kỳ lúc nào để chụp và bóc tách màn hình tức thì.
-- Hoặc tổ hợp phím **`Ctrl + Shift + S`**.
+### 4.3. Chế Độ Tự Động Quét Khi Xác Nhận Bill (Auto-Scan on Confirm)
+Để tối ưu hóa tốc độ nhập bill liên tục mà không cần bấm thêm phím quét:
+- **Phím Tắt Xác Nhận Hermes CMS:** Tự động kích hoạt quét khi người dùng nhấn **`Alt + F`** (hoặc `Enter`, click chuột vào nút Confirm).
+- **Hàng Đợi Chụp Tức Thì (<25ms):** Hệ thống lập tức lưu ảnh chụp màn hình vào RAM & ổ đĩa (`captures/YYYY-MM-DD/`) và đẩy vào hàng đợi FIFO. **Giao diện không bị khựng**, nhân viên có thể nhập tiếp bill kế tiếp ngay lập tức!
+- **Worker Chạy Ngầm:** Xử lý OCR tuần tự trong nền, tự động đổi tên ảnh thành `{ThờiGian}_{SốAWB}_{TrạngThái}.png` để lưu trữ hồ sơ đối soát.
+- **Huy Hiệu Hàng Đợi:** Widget nổi hiển thị `📸 Q: X bill` màu tím mộng mơ khi còn việc chờ xử lý, và tự động chuyển sang xanh `✔ 020-xxxx` khi hoàn tất.
+
+---
+
+### 4.4. Kích Hoạt Thủ Công Qua Phím Tắt (Global Hotkeys)
+- Bấm phím **`F9`** hoặc tổ hợp phím **`Ctrl + Shift + S`** bất kỳ lúc nào để kích hoạt quét chủ động.
 - Hệ thống có cơ chế **Debounce (0.4s)** ngăn ngừa hiện tượng bấm lặp phím ngoài ý muốn.
 
 ---
 
-### 4.4. Cửa Sổ Quản Lý Phiên Làm Việc (Session Manager)
+### 4.5. Cửa Sổ Quản Lý Phiên Làm Việc (Session Manager)
 Bấm vào biểu tượng `[ 📋 ]` trên Widget nổi để mở giao diện quản lý phiên làm việc.
 
 #### Bảng Danh Sách Vận Đơn (Treeview):
@@ -149,7 +147,9 @@ Bấm vào biểu tượng `[ 📋 ]` trên Widget nổi để mở giao diện 
 2. **✏️ Chỉnh Sửa:** Chọn một dòng AWB và bấm nút (hoặc **nhấp đúp chuột vào dòng**) để mở hộp thoại sửa nhanh số kiện, kg, tên công ty, ghi chú hoặc tick chọn cờ `ALL IMP/ACC HAWB`.
 3. **🗑️ Xóa:** Xóa một vận đơn khỏi danh sách ca trực (có hộp thoại xác nhận).
 4. **🧹 Xóa Ca:** Xóa toàn bộ danh sách để bắt đầu ca trực mới.
-5. **Bộ Lọc Nhanh (Lọc trạng thái):** Xem riêng danh sách các vận đơn `CLEARED`, `PENDING_HAWB`, hoặc vận đơn lỗi.
+5. **📁 Thư Mục Ảnh:** Mở ngay thư mục lưu trữ ảnh chụp màn hình gốc trong Windows Explorer (`captures/YYYY-MM-DD/`).
+6. **🖼️ Xem Ảnh Bill:** Nhấp chọn bất kỳ dòng vận đơn nào và bấm nút này để xem ngay ảnh chụp thực tế lúc nhân viên thao tác bill đó.
+7. **Bộ Lọc Nhanh (Lọc trạng thái):** Xem riêng danh sách các vận đơn `CLEARED`, `PENDING_HAWB`, hoặc vận đơn lỗi.
 
 #### Thanh Thống Kê Tổng Hợp (Summary KPI Bar):
 Hiển thị liên tục theo thời gian thực ở đáy cửa sổ:
