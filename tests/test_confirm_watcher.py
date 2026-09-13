@@ -68,3 +68,18 @@ class TestConfirmWatcherLifecycle:
         time.sleep(0.55)
         watcher._trigger_confirm("Test Mouse After Debounce")
         assert len(triggered_delays) == 2
+
+    def test_alt_f_shortcut_trigger(self):
+        triggered_sources = []
+
+        def on_triggered(delay: float):
+            triggered_sources.append(delay)
+
+        watcher = ConfirmWatcher(
+            on_confirm_triggered=on_triggered,
+            delay_seconds=1.0,
+            debounce_seconds=0.1,
+        )
+        watcher._trigger_confirm("Alt+F")
+        assert len(triggered_sources) == 1
+        assert triggered_sources[0] == 1.0

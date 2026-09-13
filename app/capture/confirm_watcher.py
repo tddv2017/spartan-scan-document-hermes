@@ -72,6 +72,7 @@ class ConfirmWatcher:
         self._prev_lbutton_pressed = False
         self._prev_return_pressed = False
         self._prev_f12_pressed = False
+        self._prev_alt_f_pressed = False
 
     def start(self) -> bool:
         """Start background input polling daemon thread."""
@@ -155,16 +156,33 @@ class ConfirmWatcher:
 
                 self._prev_lbutton_pressed = is_lbutton_down
 
-                # 2. Inspect Keyboard Confirm keys (Return / Ctrl+Return / F12)
+                # 2. Inspect Keyboard Confirm shortcuts:
+                # Primary: Alt+F (Lufthansa Cargo Hermes CMS standard Confirm shortcut)
+                # Fallback / Alternate: Enter, Ctrl+Enter, F12
                 if self.auto_enabled and not self._pick_window_mode and not self._calibrate_button_mode:
+                    # Check Alt+F
+                    alt_down = bool(
+                        (win32api.GetAsyncKeyState(win32con.VK_MENU) & 0x8000)
+                        or (win32api.GetAsyncKeyState(win32con.VK_LMENU) & 0x8000)
+                    )
+                    f_down = bool(win32api.GetAsyncKeyState(ord("F")) & 0x8000)
+                    is_alt_f_down = alt_down and f_down
+
+                    if is_alt_f_down and not self._prev_alt_f_pressed:
+                        fg_hwnd = win32gui.GetForegroundWindow()
+                        if self._is_target_or_hermes(fg_hwnd, current_pid):
+                            logger.info("Confirm shortcut [Alt+F] detected in Hermes CMS window.")
+                            self._trigger_confirm("Alt+F")
+
+                    self._prev_alt_f_pressed = is_alt_f_down
+
+                    # Check Return / Ctrl+Return
                     return_state = win32api.GetAsyncKeyState(win32con.VK_RETURN)
                     is_return_down = bool(return_state & 0x8000)
 
                     if is_return_down and not self._prev_return_pressed:
-                        # Check if foreground window is target window
                         fg_hwnd = win32gui.GetForegroundWindow()
                         if self._is_target_or_hermes(fg_hwnd, current_pid):
-                            # Check if Ctrl is held down or regular enter
                             ctrl_down = bool(win32api.GetAsyncKeyState(win32con.VK_CONTROL) & 0x8000)
                             trigger_name = "Ctrl+Enter" if ctrl_down else "Enter"
                             logger.info(f"Confirm key [{trigger_name}] detected in Hermes window.")
@@ -172,7 +190,7 @@ class ConfirmWatcher:
 
                     self._prev_return_pressed = is_return_down
 
-                    # F12 key check
+                    # Check F12
                     f12_state = win32api.GetAsyncKeyState(win32con.VK_F12)
                     is_f12_down = bool(f12_state & 0x8000)
                     if is_f12_down and not self._prev_f12_pressed:
