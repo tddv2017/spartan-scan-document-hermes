@@ -14,7 +14,7 @@ import signal
 import sys
 import threading
 import tkinter as tk
-from typing import Optional
+from typing import Any, Optional
 
 # Ensure hermes_vision_extractor root is on sys.path
 BASE_DIR = Path(__file__).resolve().parent
