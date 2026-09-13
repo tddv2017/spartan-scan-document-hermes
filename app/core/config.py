@@ -125,6 +125,8 @@ HERMES_WINDOW_TITLE_PATTERNS = [
 AUTO_SCAN_ENABLED_DEFAULT = True
 CONFIRM_CAPTURE_DELAY_SEC_DEFAULT = 1.0  # Default 1.0s delay after confirm
 CONFIRM_DEBOUNCE_SEC = 2.0  # Prevent multiple rapid confirms from duplicate triggers
+DEFAULT_CAPTURES_DIR = Path("captures")
+SAVE_SNAPSHOTS_TO_DISK_DEFAULT = True
 
 
 @dataclass
@@ -147,6 +149,8 @@ class Config:
     confirm_delay_sec: float = CONFIRM_CAPTURE_DELAY_SEC_DEFAULT
     pinned_window_title: str = ""
     pinned_hwnd: Optional[int] = None
+    save_snapshots_to_disk: bool = SAVE_SNAPSHOTS_TO_DISK_DEFAULT
+    captures_dir: Path = field(default_factory=lambda: Path("captures"))
 
     def get_airline_name(self, prefix: str) -> str:
         """Resolve airline name from 3-digit prefix."""

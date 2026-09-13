@@ -352,6 +352,17 @@ class FloatingOverlay(tk.Toplevel):
         # Auto restore to READY after 2.5 seconds
         self._restore_timer = self.after(2500, self.set_state_ready)
 
+    def set_state_queued(self, count: int) -> None:
+        """Display pending capture queue status badge."""
+        if count > 0:
+            self._cancel_timers()
+            self._is_scanning = False
+            self.status_label.config(text=f"📸 Q: {count} bill", fg="#A78BFA")
+            self.bg_frame.config(highlightbackground="#8B5CF6")
+        else:
+            if not self._restore_timer:
+                self.set_state_ready()
+
     def set_state_countdown(self, seconds: float) -> None:
         """Visual countdown feedback when a Confirm action is detected in Hermes."""
         self._cancel_timers()

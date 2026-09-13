@@ -35,6 +35,7 @@ class SessionManagerWindow(tk.Toplevel):
         on_pick_window: Optional[Callable[[], None]] = None,
         on_calibrate_button: Optional[Callable[[], None]] = None,
         on_set_delay: Optional[Callable[[float], None]] = None,
+        captures_dir: Optional[Path] = None,
     ) -> None:
         super().__init__(master)
 
@@ -44,6 +45,7 @@ class SessionManagerWindow(tk.Toplevel):
         self.on_pick_window = on_pick_window
         self.on_calibrate_button = on_calibrate_button
         self.on_set_delay = on_set_delay
+        self.captures_dir = captures_dir or Path("captures")
 
         self.title("Quản Lý Vận Đơn Ca Trực - Hermes CMS Vision Extractor")
         self.geometry("1060x640")
@@ -192,6 +194,41 @@ class SessionManagerWindow(tk.Toplevel):
             command=self._handle_export_dialog,
         )
         self.btn_export.pack(side=tk.LEFT, padx=4)
+
+        # Separator
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        # Open Captures Folder Button
+        self.btn_captures = tk.Button(
+            toolbar,
+            text="📁 Thư Mục Ảnh",
+            font=("Segoe UI", 9),
+            bg="#EDE9FE",
+            fg="#6D28D9",
+            activebackground="#DDD6FE",
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=self._handle_open_captures_folder,
+        )
+        self.btn_captures.pack(side=tk.LEFT, padx=4)
+
+        # View Snapshot Button
+        self.btn_view_snapshot = tk.Button(
+            toolbar,
+            text="🖼️ Xem Ảnh Bill",
+            font=("Segoe UI", 9),
+            bg="#E0F2FE",
+            fg="#0369A1",
+            activebackground="#BAE6FD",
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=self._handle_view_selected_snapshot,
+        )
+        self.btn_view_snapshot.pack(side=tk.LEFT, padx=4)
 
         # Right Side: Quick Search / Filter
         lbl_filter = tk.Label(toolbar, text="Lọc trạng thái:", bg="#F1F5F9", font=("Segoe UI", 9))
@@ -555,6 +592,39 @@ class SessionManagerWindow(tk.Toplevel):
             return
 
         ExportPdfDialog(self, records, self.store.get_summary())
+
+    def _handle_open_captures_folder(self) -> None:
+        """Open local captures archive folder in Windows Explorer."""
+        p = Path(self.captures_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(str(p))
+        except Exception as e:
+            logger.error(f"Failed to open captures folder: {e}")
+            messagebox.showerror("Lỗi", f"Không thể mở thư mục ảnh:\n{e}", parent=self)
+
+    def _handle_view_selected_snapshot(self) -> None:
+        """Open captured screenshot for selected AWB record."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo("Xem Ảnh Bill", "Vui lòng chọn một dòng vận đơn để xem ảnh chụp.", parent=self)
+            return
+        record_id = selected[0]
+        record = self.store.get_record(record_id)
+        if not record:
+            return
+        if record.snapshot_path and os.path.exists(record.snapshot_path):
+            try:
+                os.startfile(record.snapshot_path)
+            except Exception as e:
+                logger.error(f"Failed to open snapshot {record.snapshot_path}: {e}")
+                messagebox.showerror("Lỗi", f"Không thể mở ảnh chụp:\n{e}", parent=self)
+        else:
+            messagebox.showinfo(
+                "Ảnh Chụp",
+                f"Vận đơn {record.awb_number} không có ảnh chụp lưu trên ổ đĩa (hoặc ảnh đã bị xóa).",
+                parent=self,
+            )
 
 
 class EditRecordDialog(tk.Toplevel):

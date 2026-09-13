@@ -40,6 +40,7 @@ class ExtractionResult(BaseModel):
     is_valid_checksum: bool = Field(default=False, description="True if IATA Modulo-7 check digit matches")
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Overall OCR confidence score")
     raw_ocr_tokens: List[str] = Field(default_factory=list, description="Raw OCR token strings")
+    snapshot_path: Optional[str] = Field(default="", description="Absolute path to saved PNG screenshot on disk")
 
     @property
     def is_complete(self) -> bool:
@@ -75,6 +76,7 @@ class AWBRecord(BaseModel):
     )
     is_manually_edited: bool = Field(default=False, description="True if modified by user")
     extraction_confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="OCR confidence")
+    snapshot_path: Optional[str] = Field(default="", description="Path to archived screen image on disk")
 
     @classmethod
     def from_extraction_result(
@@ -118,6 +120,7 @@ class AWBRecord(BaseModel):
             has_all_imp_acc_hawb=result.has_all_imp_acc_hawb,
             status_tag=computed_status,
             extraction_confidence=result.confidence,
+            snapshot_path=result.snapshot_path or "",
         )
 
 

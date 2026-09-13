@@ -22,6 +22,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from app.capture.confirm_watcher import ConfirmWatcher
+from app.capture.queue_manager import CaptureJob, CaptureQueueManager
 from app.capture.screen_grabber import ScreenGrabber
 from app.core.config import APP_NAME, APP_VERSION, Config
 from app.core.hotkey import GlobalHotkeyListener
@@ -69,7 +70,15 @@ class HermesVisionApp:
         self._proc_lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="AppVisionWorker")
 
-        # 2. Initialize Confirm Action Watcher (Auto-Scan on Confirm click/key)
+        # 2. Initialize Asynchronous Capture Queue & Disk Archiving
+        self.queue_manager = CaptureQueueManager(
+            job_processor=self._process_capture_job,
+            on_queue_changed=self._on_queue_changed,
+            captures_base_dir=self.config.captures_dir,
+            save_to_disk=self.config.save_snapshots_to_disk,
+        )
+
+        # 3. Initialize Confirm Action Watcher (Auto-Scan on Confirm click/key)
         self.confirm_watcher = ConfirmWatcher(
             on_confirm_triggered=self._on_confirm_detected,
             delay_seconds=self.config.confirm_delay_sec,
@@ -77,7 +86,7 @@ class HermesVisionApp:
             auto_enabled=self.config.auto_scan_enabled,
         )
 
-        # 3. Initialize GUI Elements
+        # 4. Initialize GUI Elements
         self.root = tk.Tk()
         self.root.withdraw()  # Root remains hidden; top-levels provide UI
 
@@ -102,6 +111,7 @@ class HermesVisionApp:
             on_pick_window=self._on_pick_window,
             on_calibrate_button=self._on_calibrate_button,
             on_set_delay=self._on_set_delay,
+            captures_dir=self.config.captures_dir,
         )
 
         if show_session_manager:
@@ -109,7 +119,7 @@ class HermesVisionApp:
         else:
             self.session_window.hide()
 
-        # 4. Initialize Global Win32 Hotkey Listener (F9, Ctrl+Shift+S)
+        # 5. Initialize Global Win32 Hotkey Listener (F9, Ctrl+Shift+S)
         self.hotkey_listener = GlobalHotkeyListener(
             callback=self._on_hotkey_triggered,
             debounce_seconds=self.config.debounce_seconds,
@@ -117,6 +127,9 @@ class HermesVisionApp:
 
     def start(self) -> None:
         """Start background listeners and enter Tkinter main loop."""
+        logger.info("Starting Capture Queue Manager consumer worker...")
+        self.queue_manager.start()
+
         logger.info("Starting global hotkey listener (F9, Ctrl+Shift+S)...")
         hotkeys_started = self.hotkey_listener.start()
         if not hotkeys_started:
@@ -137,6 +150,11 @@ class HermesVisionApp:
     def shutdown(self) -> None:
         """Gracefully release hotkeys, shutdown thread pool, and destroy UI."""
         logger.info("Shutting down Hermes Vision Extractor...")
+        try:
+            self.queue_manager.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping queue manager: {e}")
+
         try:
             self.hotkey_listener.stop()
         except Exception as e:
@@ -178,7 +196,7 @@ class HermesVisionApp:
         """Callback from background hotkey thread."""
         logger.info(f"Hotkey event received: {hotkey_name}. Dispatching scan to main thread.")
         try:
-            self.root.after(0, self.trigger_scan)
+            self.root.after(0, lambda: self.trigger_scan(trigger_source=f"hotkey_{hotkey_name}"))
         except Exception as e:
             logger.error(f"Error posting hotkey event to Tkinter loop: {e}")
 
@@ -189,9 +207,16 @@ class HermesVisionApp:
             # Display visual countdown on overlay (<1s feedback)
             self.root.after(0, lambda: self.overlay.set_state_countdown(delay_sec))
             # Schedule actual scan after exact delay
-            self.root.after(int(delay_sec * 1000), self.trigger_scan)
+            self.root.after(int(delay_sec * 1000), lambda: self.trigger_scan(trigger_source="auto_confirm"))
         except Exception as e:
             logger.error(f"Error scheduling confirm scan: {e}")
+
+    def _on_queue_changed(self, count: int) -> None:
+        """Callback from queue manager when queue depth changes."""
+        try:
+            self.root.after(0, lambda: self.overlay.set_state_queued(count))
+        except Exception:
+            pass
 
     def _on_toggle_auto_scan(self, enabled: bool) -> None:
         """Synchronize Auto-scan toggle state across subsystem components."""
@@ -227,45 +252,43 @@ class HermesVisionApp:
         self.session_window.set_delay(delay_sec)
         logger.info(f"Confirm capture delay configured to: {delay_sec:.1f}s")
 
-    def trigger_scan(self) -> None:
-        """Execute screen capture, OCR, parsing, and session upsert asynchronously."""
-        with self._proc_lock:
-            if self._processing:
-                logger.info("Scan already in progress. Ignoring trigger.")
-                return
-            self._processing = True
-
-        # Update overlay state immediately on main thread (<1s feedback)
-        self.overlay.set_state_scanning()
-
-        # Submit vision processing pipeline to background worker thread
-        self._executor.submit(self._run_scan_pipeline)
-
-    def _run_scan_pipeline(self) -> None:
-        """Background worker executing the Vision & OCR pipeline."""
+    def trigger_scan(self, trigger_source: str = "manual") -> None:
+        """Instantly capture Hermes screen in RAM (<25ms) and enqueue for background processing."""
         try:
-            logger.info("Capturing Hermes screen / active window...")
+            logger.info(f"Capturing Hermes screen (trigger: {trigger_source})...")
             img, title = self.grabber.capture_active_window()
             if img is None:
                 logger.debug("Active window grab returned empty, falling back to full screen...")
                 img = self.grabber.capture_full_screen()
+                title = title or "Desktop"
 
             if img is None:
                 logger.warning("Screen capture failed to produce an image.")
                 self.root.after(0, lambda: self.overlay.set_state_error("Lỗi chụp"))
                 return
 
-            logger.info(f"Screen captured ({img.width}x{img.height}) from '{title}'. Running OCR recognition...")
-            ocr_res = self.ocr_engine.recognize(img)
+            # Push immediately into FIFO queue (<20ms in RAM + disk save)
+            job = self.queue_manager.enqueue(img, window_title=title, trigger_source=trigger_source)
+            pending = self.queue_manager.pending_count()
+            self.root.after(0, lambda: self.overlay.set_state_queued(pending))
+        except Exception as e:
+            logger.error(f"Error enqueuing capture: {e}", exc_info=True)
+            self.root.after(0, lambda: self.overlay.set_state_error("Lỗi hàng đợi"))
+
+    def _process_capture_job(self, job: CaptureJob) -> None:
+        """Sequential background consumer executing OCR, domain parsing, snapshot archiving, and session upsert."""
+        try:
+            logger.info(f"Processing queued capture job [{job.job_id}] from '{job.window_title}'...")
+            ocr_res = self.ocr_engine.recognize(job.image)
 
             parsed = None
             if ocr_res.has_text:
-                logger.info(f"OCR recognized {len(ocr_res.tokens)} tokens. Parsing Hermes entities...")
+                logger.info(f"Job [{job.job_id}] recognized {len(ocr_res.tokens)} tokens. Parsing entities...")
                 parsed = self.parser.parse_ocr_result(ocr_res)
 
             # Resilient fallback: If no AWB was detected in active window, scan full desktop
-            if (not parsed or not parsed.awb_number) and title != "Desktop":
-                logger.info(f"No AWB in active window '{title}'. Initiating full desktop screen fallback...")
+            if (not parsed or not parsed.awb_number) and job.window_title != "Desktop":
+                logger.info(f"No AWB in active window '{job.window_title}'. Initiating full desktop screen fallback...")
                 full_img = self.grabber.capture_full_screen()
                 if full_img:
                     full_ocr = self.ocr_engine.recognize(full_img)
@@ -273,23 +296,28 @@ class HermesVisionApp:
                         full_parsed = self.parser.parse_ocr_result(full_ocr)
                         if full_parsed.awb_number:
                             logger.info(f"AWB {full_parsed.awb_number} successfully extracted via full screen fallback!")
-                            img = full_img
                             ocr_res = full_ocr
                             parsed = full_parsed
 
             if not parsed or not parsed.awb_number:
-                logger.info("No valid AWB number found in screen content.")
+                logger.info(f"Job [{job.job_id}] has no valid AWB number.")
+                if job.saved_path:
+                    self.queue_manager.rename_snapshot_with_awb(job, "NOAWB", "FAILED")
                 self.root.after(0, lambda: self.overlay.set_state_error("Không có AWB"))
                 return
 
-            # Construct AWB record and upsert into SessionStore
+            # Construct AWB record and set snapshot path
             record = AWBRecord.from_extraction_result(parsed)
-            upserted, is_new = self.store.upsert_record(record)
+            status_val = record.status_tag.value if hasattr(record.status_tag, "value") else str(record.status_tag)
 
+            if job.saved_path:
+                renamed_path = self.queue_manager.rename_snapshot_with_awb(job, record.awb_number, status_val)
+                record.snapshot_path = renamed_path or job.saved_path
+
+            upserted, is_new = self.store.upsert_record(record)
             action_str = "Added new" if is_new else "Updated existing"
-            status_val = upserted.status_tag.value if hasattr(upserted.status_tag, "value") else str(upserted.status_tag)
             logger.info(
-                f"{action_str} AWB: {upserted.awb_number} | "
+                f"{action_str} AWB [{job.job_id}]: {upserted.awb_number} | "
                 f"Pcs: {upserted.pieces} | Wt: {upserted.weight_kg}kg | "
                 f"Status: {status_val}"
             )
@@ -298,11 +326,8 @@ class HermesVisionApp:
             self.root.after(0, lambda r=upserted: self.overlay.set_state_success(r.awb_number))
 
         except Exception as e:
-            logger.error(f"Error during scan pipeline execution: {e}", exc_info=True)
+            logger.error(f"Error during job [{job.job_id}] processing: {e}", exc_info=True)
             self.root.after(0, lambda: self.overlay.set_state_error("Lỗi quét"))
-        finally:
-            with self._proc_lock:
-                self._processing = False
 
 
 def main() -> None:
