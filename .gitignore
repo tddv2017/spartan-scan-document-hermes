@@ -15,8 +15,9 @@ ENV/
 
 # PyInstaller / Build outputs
 build/
-dist/
-*.spec
+dist/*
+!dist/HermesVisionExtractor.exe
+!HermesVisionExtractor.spec
 
 # IDE
 .vscode/
@@ -28,3 +29,4 @@ dist/
 *.pdf
 output_test/
 temp/
+captures/
