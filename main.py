@@ -186,18 +186,29 @@ class HermesVisionApp:
                 self.root.after(0, lambda: self.overlay.set_state_error("Lỗi chụp"))
                 return
 
-            logger.info(f"Screen captured ({img.width}x{img.height}). Running OCR recognition...")
+            logger.info(f"Screen captured ({img.width}x{img.height}) from '{title}'. Running OCR recognition...")
             ocr_res = self.ocr_engine.recognize(img)
 
-            if not ocr_res.has_text:
-                logger.info("No text recognized in captured screen area.")
-                self.root.after(0, lambda: self.overlay.set_state_error("Không có chữ"))
-                return
+            parsed = None
+            if ocr_res.has_text:
+                logger.info(f"OCR recognized {len(ocr_res.tokens)} tokens. Parsing Hermes entities...")
+                parsed = self.parser.parse_ocr_result(ocr_res)
 
-            logger.info(f"OCR recognized {len(ocr_res.tokens)} tokens. Parsing Hermes entities...")
-            parsed = self.parser.parse_ocr_result(ocr_res)
+            # Resilient fallback: If no AWB was detected in active window, scan full desktop
+            if (not parsed or not parsed.awb_number) and title != "Desktop":
+                logger.info(f"No AWB in active window '{title}'. Initiating full desktop screen fallback...")
+                full_img = self.grabber.capture_full_screen()
+                if full_img:
+                    full_ocr = self.ocr_engine.recognize(full_img)
+                    if full_ocr.has_text:
+                        full_parsed = self.parser.parse_ocr_result(full_ocr)
+                        if full_parsed.awb_number:
+                            logger.info(f"AWB {full_parsed.awb_number} successfully extracted via full screen fallback!")
+                            img = full_img
+                            ocr_res = full_ocr
+                            parsed = full_parsed
 
-            if not parsed.awb_number:
+            if not parsed or not parsed.awb_number:
                 logger.info("No valid AWB number found in screen content.")
                 self.root.after(0, lambda: self.overlay.set_state_error("Không có AWB"))
                 return

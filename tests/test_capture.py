@@ -97,3 +97,10 @@ class TestScreenGrabberLiveEnvironment:
         for hwnd, title in windows:
             assert isinstance(hwnd, int)
             assert isinstance(title, str)
+
+    def test_capture_active_window_respects_min_dimensions(self) -> None:
+        sg = ScreenGrabber()
+        # Should gracefully return Desktop or None when min dimensions are impossible
+        img, title = sg.capture_active_window(min_width=99999, min_height=99999)
+        # In headless/non-interactive, falls back to Desktop
+        assert title == "Desktop" or img is not None

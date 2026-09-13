@@ -216,36 +216,6 @@ class ScreenGrabber:
 
         return None, ""
 
-    def capture_active_window(self) -> Tuple[Optional[Image.Image], str]:
-        """Capture the currently focused foreground window.
-
-        If foreground window cannot be captured, gracefully falls back to full screen.
-        """
-        if self._mock_image is not None:
-            return self._mock_image.copy(), "Mock Active Window"
-
-        if not self._is_windows:
-            full = self.capture_full_screen()
-            return full, "Desktop"
-
-        try:
-            import win32gui
-
-            hwnd = win32gui.GetForegroundWindow()
-            if hwnd:
-                img, title = self.capture_window_hwnd(hwnd)
-                if img:
-                    return img, title
-
-            # Fallback to full screen if no valid foreground window
-            logger.debug("Active window grab returned empty, falling back to full desktop.")
-            full = self.capture_full_screen()
-            return full, "Desktop"
-        except Exception as e:
-            logger.warning(f"capture_active_window encountered error: {e}")
-            full = self.capture_full_screen()
-            return full, "Desktop"
-
     def find_hermes_windows(self) -> List[Tuple[int, str]]:
         """Locate all top-level windows matching Hermes CMS titles."""
         results: List[Tuple[int, str]] = []
@@ -253,13 +223,23 @@ class ScreenGrabber:
             return results
 
         import win32gui
+        import win32process
 
+        current_pid = os.getpid()
         patterns = [re.compile(rf"(?i){re.escape(p)}") for p in HERMES_WINDOW_TITLE_PATTERNS]
 
         def _enum_handler(hwnd: int, extra: Any) -> None:
-            if win32gui.IsWindowVisible(hwnd):
+            if win32gui.IsWindowVisible(hwnd) and not win32gui.IsIconic(hwnd):
+                try:
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if pid == current_pid:
+                        return
+                except Exception:
+                    pass
+
                 title = win32gui.GetWindowText(hwnd)
-                if title:
+                # Exclude our own app windows by title
+                if title and not any(t in title for t in ["Hermes Vision Extractor", "Hermes Session Manager"]):
                     for pat in patterns:
                         if pat.search(title):
                             results.append((hwnd, title))
@@ -271,6 +251,95 @@ class ScreenGrabber:
             logger.debug(f"Window enumeration error: {e}")
 
         return results
+
+    def capture_active_window(
+        self,
+        min_width: int = 500,
+        min_height: int = 350,
+    ) -> Tuple[Optional[Image.Image], str]:
+        """Capture the currently focused foreground window or active Hermes/workspace window.
+
+        Intelligently ignores the application's own UI widgets (e.g. the 320x44 floating
+        overlay or session window) and tiny popups. If the active window is invalid or
+        belongs to our own app, it prioritizes:
+        1. Any open Hermes CMS window (found via window title pattern matching).
+        2. The underlying workspace window down the Z-order.
+        3. Full-screen virtual desktop capture as safe fallback.
+        """
+        if self._mock_image is not None:
+            return self._mock_image.copy(), "Mock Active Window"
+
+        if not self._is_windows:
+            full = self.capture_full_screen()
+            return full, "Desktop"
+
+        try:
+            import win32con
+            import win32gui
+            import win32process
+
+            current_pid = os.getpid()
+            fg_hwnd = win32gui.GetForegroundWindow()
+
+            def is_valid_target(hwnd: int) -> bool:
+                if not hwnd or not win32gui.IsWindow(hwnd):
+                    return False
+                if not win32gui.IsWindowVisible(hwnd) or win32gui.IsIconic(hwnd):
+                    return False
+                try:
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if pid == current_pid:
+                        return False
+                except Exception:
+                    pass
+                title = win32gui.GetWindowText(hwnd)
+                if any(t in title for t in ["Hermes Vision Extractor", "Hermes Session Manager"]):
+                    return False
+                bounds = self.get_window_bounds(hwnd)
+                if not bounds:
+                    return False
+                w = bounds[2] - bounds[0]
+                h = bounds[3] - bounds[1]
+                return w >= min_width and h >= min_height
+
+            target_hwnd = None
+            if fg_hwnd and is_valid_target(fg_hwnd):
+                target_hwnd = fg_hwnd
+
+            # If foreground window was our floating overlay or too small:
+            if not target_hwnd:
+                # 1. Search for any open Hermes window
+                hermes_wins = self.find_hermes_windows()
+                if hermes_wins:
+                    for h, _ in hermes_wins:
+                        if is_valid_target(h):
+                            target_hwnd = h
+                            break
+
+            # 2. Walk down Z-order from foreground window to find underlying application
+            if not target_hwnd and fg_hwnd:
+                curr = win32gui.GetWindow(fg_hwnd, win32con.GW_HWNDNEXT)
+                depth = 0
+                while curr and depth < 30:
+                    if is_valid_target(curr):
+                        target_hwnd = curr
+                        break
+                    curr = win32gui.GetWindow(curr, win32con.GW_HWNDNEXT)
+                    depth += 1
+
+            if target_hwnd:
+                img, title = self.capture_window_hwnd(target_hwnd)
+                if img and img.width >= min_width and img.height >= min_height:
+                    return img, title
+
+            # Fallback to full screen if no valid workspace window
+            logger.debug("No valid workspace window identified, capturing full screen.")
+            full = self.capture_full_screen()
+            return full, "Desktop"
+        except Exception as e:
+            logger.warning(f"capture_active_window encountered error: {e}")
+            full = self.capture_full_screen()
+            return full, "Desktop"
 
     def capture_window_by_title_pattern(self, pattern: str) -> Tuple[Optional[Image.Image], str]:
         """Search for a window matching pattern regex and capture it."""
