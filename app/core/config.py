@@ -6,7 +6,7 @@ Hermes Vision Extractor - Core Configuration Subsystem.
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # -------------------------------------------------------------------------
 # Application Metadata
@@ -119,6 +119,14 @@ HERMES_WINDOW_TITLE_PATTERNS = [
 ]
 
 
+# -------------------------------------------------------------------------
+# Auto-Scan & Confirm Action Watcher Settings
+# -------------------------------------------------------------------------
+AUTO_SCAN_ENABLED_DEFAULT = True
+CONFIRM_CAPTURE_DELAY_SEC_DEFAULT = 1.0  # Default 1.0s delay after confirm
+CONFIRM_DEBOUNCE_SEC = 2.0  # Prevent multiple rapid confirms from duplicate triggers
+
+
 @dataclass
 class Config:
     """Runtime application configuration."""
@@ -135,6 +143,10 @@ class Config:
     font_bold_path: str = DEFAULT_FONT_BOLD_PATH
     debounce_seconds: float = HOTKEY_DEBOUNCE_SECONDS
     prefix_map: Dict[str, str] = field(default_factory=lambda: dict(AIRLINE_PREFIX_MAP))
+    auto_scan_enabled: bool = AUTO_SCAN_ENABLED_DEFAULT
+    confirm_delay_sec: float = CONFIRM_CAPTURE_DELAY_SEC_DEFAULT
+    pinned_window_title: str = ""
+    pinned_hwnd: Optional[int] = None
 
     def get_airline_name(self, prefix: str) -> str:
         """Resolve airline name from 3-digit prefix."""

@@ -21,6 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from app.capture.confirm_watcher import ConfirmWatcher
 from app.capture.screen_grabber import ScreenGrabber
 from app.core.config import APP_NAME, APP_VERSION, Config
 from app.core.hotkey import GlobalHotkeyListener
@@ -68,7 +69,15 @@ class HermesVisionApp:
         self._proc_lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="AppVisionWorker")
 
-        # 2. Initialize GUI Elements
+        # 2. Initialize Confirm Action Watcher (Auto-Scan on Confirm click/key)
+        self.confirm_watcher = ConfirmWatcher(
+            on_confirm_triggered=self._on_confirm_detected,
+            delay_seconds=self.config.confirm_delay_sec,
+            debounce_seconds=2.0,
+            auto_enabled=self.config.auto_scan_enabled,
+        )
+
+        # 3. Initialize GUI Elements
         self.root = tk.Tk()
         self.root.withdraw()  # Root remains hidden; top-levels provide UI
 
@@ -78,6 +87,10 @@ class HermesVisionApp:
             on_scan=self.trigger_scan,
             on_open_session=self.open_session_manager,
             on_exit=self.shutdown,
+            on_toggle_auto=self._on_toggle_auto_scan,
+            on_pick_window=self._on_pick_window,
+            on_calibrate_button=self._on_calibrate_button,
+            on_set_delay=self._on_set_delay,
         )
 
         # Session Manager Window
@@ -85,6 +98,10 @@ class HermesVisionApp:
             master=self.root,
             store=self.store,
             on_scan=self.trigger_scan,
+            on_toggle_auto=self._on_toggle_auto_scan,
+            on_pick_window=self._on_pick_window,
+            on_calibrate_button=self._on_calibrate_button,
+            on_set_delay=self._on_set_delay,
         )
 
         if show_session_manager:
@@ -92,7 +109,7 @@ class HermesVisionApp:
         else:
             self.session_window.hide()
 
-        # 3. Initialize Global Win32 Hotkey Listener (F9, Ctrl+Shift+S)
+        # 4. Initialize Global Win32 Hotkey Listener (F9, Ctrl+Shift+S)
         self.hotkey_listener = GlobalHotkeyListener(
             callback=self._on_hotkey_triggered,
             debounce_seconds=self.config.debounce_seconds,
@@ -105,10 +122,13 @@ class HermesVisionApp:
         if not hotkeys_started:
             logger.warning("Global hotkeys could not be registered. Floating widget remains active.")
 
+        logger.info("Starting Confirm Action Watcher (Auto-Scan)...")
+        self.confirm_watcher.start()
+
         # Handle SIGINT (Ctrl+C) cleanly
         signal.signal(signal.SIGINT, lambda sig, frame: self.shutdown())
 
-        logger.info(f"{APP_NAME} operational. Floating widget ready.")
+        logger.info(f"{APP_NAME} operational. Floating widget and auto-watcher ready.")
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
@@ -121,6 +141,11 @@ class HermesVisionApp:
             self.hotkey_listener.stop()
         except Exception as e:
             logger.debug(f"Error stopping hotkeys: {e}")
+
+        try:
+            self.confirm_watcher.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping confirm watcher: {e}")
 
         try:
             self._executor.shutdown(wait=False)
@@ -152,11 +177,55 @@ class HermesVisionApp:
     def _on_hotkey_triggered(self, hotkey_name: str) -> None:
         """Callback from background hotkey thread."""
         logger.info(f"Hotkey event received: {hotkey_name}. Dispatching scan to main thread.")
-        # Post to Tkinter main thread
         try:
             self.root.after(0, self.trigger_scan)
         except Exception as e:
             logger.error(f"Error posting hotkey event to Tkinter loop: {e}")
+
+    def _on_confirm_detected(self, delay_sec: float) -> None:
+        """Callback from ConfirmWatcher: updates visual countdown and schedules scan."""
+        logger.info(f"Confirm action received! Scheduling scan in {delay_sec:.1f}s...")
+        try:
+            # Display visual countdown on overlay (<1s feedback)
+            self.root.after(0, lambda: self.overlay.set_state_countdown(delay_sec))
+            # Schedule actual scan after exact delay
+            self.root.after(int(delay_sec * 1000), self.trigger_scan)
+        except Exception as e:
+            logger.error(f"Error scheduling confirm scan: {e}")
+
+    def _on_toggle_auto_scan(self, enabled: bool) -> None:
+        """Synchronize Auto-scan toggle state across subsystem components."""
+        self.config.auto_scan_enabled = enabled
+        self.confirm_watcher.auto_enabled = enabled
+        self.overlay.set_auto_enabled(enabled)
+        self.session_window.set_auto_enabled(enabled)
+        logger.info(f"Auto-scan on confirm toggled: {'ENABLED' if enabled else 'DISABLED'}")
+
+    def _on_pick_window(self) -> None:
+        """Activate window picker mode."""
+        self.confirm_watcher.start_window_picker(callback=self._on_window_picked)
+
+    def _on_window_picked(self, hwnd: int, title: str) -> None:
+        """Pin selected window and update UI across overlay and session manager."""
+        self.grabber.pin_window(hwnd, title)
+        self.confirm_watcher.set_target_window(hwnd, title)
+        self.root.after(0, lambda: self.overlay.set_pinned_title(title))
+        self.root.after(0, lambda: self.session_window.set_pinned_title(title))
+
+    def _on_calibrate_button(self) -> None:
+        """Activate Confirm button calibration mode."""
+        self.confirm_watcher.start_button_calibration(callback=self._on_button_calibrated)
+
+    def _on_button_calibrated(self, hotspot: Any) -> None:
+        """Handle completion of Confirm button calibration."""
+        self.root.after(0, lambda: self.overlay.set_state_success("Đã chấm nút!"))
+
+    def _on_set_delay(self, delay_sec: float) -> None:
+        """Update capture delay across config and watcher."""
+        self.config.confirm_delay_sec = delay_sec
+        self.confirm_watcher.delay_seconds = delay_sec
+        self.session_window.set_delay(delay_sec)
+        logger.info(f"Confirm capture delay configured to: {delay_sec:.1f}s")
 
     def trigger_scan(self) -> None:
         """Execute screen capture, OCR, parsing, and session upsert asynchronously."""

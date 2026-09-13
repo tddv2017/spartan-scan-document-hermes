@@ -31,11 +31,19 @@ class SessionManagerWindow(tk.Toplevel):
         master: tk.Tk,
         store: SessionStore,
         on_scan: Optional[Callable[[], None]] = None,
+        on_toggle_auto: Optional[Callable[[bool], None]] = None,
+        on_pick_window: Optional[Callable[[], None]] = None,
+        on_calibrate_button: Optional[Callable[[], None]] = None,
+        on_set_delay: Optional[Callable[[float], None]] = None,
     ) -> None:
         super().__init__(master)
 
         self.store = store
         self.on_scan = on_scan
+        self.on_toggle_auto = on_toggle_auto
+        self.on_pick_window = on_pick_window
+        self.on_calibrate_button = on_calibrate_button
+        self.on_set_delay = on_set_delay
 
         self.title("Quản Lý Vận Đơn Ca Trực - Hermes CMS Vision Extractor")
         self.geometry("1060x640")
@@ -47,6 +55,7 @@ class SessionManagerWindow(tk.Toplevel):
         # Build UI layout
         self._setup_styles()
         self._build_toolbar()
+        self._build_auto_toolbar()
         self._build_treeview()
         self._build_summary_bar()
 
@@ -199,6 +208,108 @@ class SessionManagerWindow(tk.Toplevel):
         )
         self.combo_filter.pack(side=tk.LEFT, padx=2)
         self.combo_filter.bind("<<ComboboxSelected>>", lambda e: self.refresh_records())
+
+    def _build_auto_toolbar(self) -> None:
+        """Construct secondary toolbar for Auto-Scan and target Hermes window controls."""
+        auto_bar = tk.Frame(self, bg="#E2E8F0", padx=8, pady=4)
+        auto_bar.pack(side=tk.TOP, fill=tk.X)
+
+        self.var_auto_scan = tk.BooleanVar(value=True)
+        chk = tk.Checkbutton(
+            auto_bar,
+            text="⚡ Tự động quét khi Confirm (Chuột / Phím)",
+            variable=self.var_auto_scan,
+            font=("Segoe UI", 9, "bold"),
+            bg="#E2E8F0",
+            fg="#0F172A",
+            activebackground="#E2E8F0",
+            command=self._handle_toggle_auto,
+        )
+        chk.pack(side=tk.LEFT, padx=(0, 10))
+
+        btn_pin = tk.Button(
+            auto_bar,
+            text="🎯 Ghim Cửa Sổ Hermes...",
+            font=("Segoe UI", 8, "bold"),
+            bg="#0284C7",
+            fg="#FFFFFF",
+            activebackground="#0369A1",
+            relief=tk.FLAT,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            command=self._handle_pick_window,
+        )
+        btn_pin.pack(side=tk.LEFT, padx=4)
+
+        btn_calib = tk.Button(
+            auto_bar,
+            text="📍 Chấm Nút Confirm...",
+            font=("Segoe UI", 8),
+            bg="#475569",
+            fg="#FFFFFF",
+            activebackground="#334155",
+            relief=tk.FLAT,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            command=self._handle_calibrate_button,
+        )
+        btn_calib.pack(side=tk.LEFT, padx=4)
+
+        tk.Label(auto_bar, text="⏱ Độ trễ:", font=("Segoe UI", 8), bg="#E2E8F0", fg="#475569").pack(side=tk.LEFT, padx=(10, 2))
+        self.combo_delay = ttk.Combobox(auto_bar, values=["0.5s", "1.0s", "1.5s", "2.0s"], width=6, state="readonly")
+        self.combo_delay.set("1.0s")
+        self.combo_delay.pack(side=tk.LEFT, padx=2)
+        self.combo_delay.bind("<<ComboboxSelected>>", self._handle_delay_selected)
+
+        self.lbl_target_info = tk.Label(
+            auto_bar,
+            text="🎯 Cửa sổ theo dõi: Tự động nhận diện",
+            font=("Segoe UI", 8, "bold"),
+            bg="#E2E8F0",
+            fg="#0369A1",
+        )
+        self.lbl_target_info.pack(side=tk.RIGHT, padx=6)
+
+    def _handle_toggle_auto(self) -> None:
+        if self.on_toggle_auto:
+            self.on_toggle_auto(self.var_auto_scan.get())
+
+    def _handle_pick_window(self) -> None:
+        if self.on_pick_window:
+            self.on_pick_window()
+
+    def _handle_calibrate_button(self) -> None:
+        if self.on_calibrate_button:
+            self.on_calibrate_button()
+
+    def _handle_delay_selected(self, event: Any) -> None:
+        val_str = self.combo_delay.get().replace("s", "")
+        try:
+            delay = float(val_str)
+            if self.on_set_delay:
+                self.on_set_delay(delay)
+        except ValueError:
+            pass
+
+    def set_pinned_title(self, title: str) -> None:
+        """Update toolbar status display showing pinned window."""
+        if hasattr(self, "lbl_target_info"):
+            if title:
+                self.lbl_target_info.config(text=f"🎯 Đang ghim: {title[:28]}", fg="#059669")
+            else:
+                self.lbl_target_info.config(text="🎯 Cửa sổ: Tự động nhận diện", fg="#0369A1")
+
+    def set_auto_enabled(self, enabled: bool) -> None:
+        """Update auto-scan checkbox state."""
+        if hasattr(self, "var_auto_scan"):
+            self.var_auto_scan.set(enabled)
+
+    def set_delay(self, delay: float) -> None:
+        """Update delay combobox value."""
+        if hasattr(self, "combo_delay"):
+            self.combo_delay.set(f"{delay:.1f}s")
 
     def _build_treeview(self) -> None:
         """Construct central Treeview table and scrollbars."""

@@ -62,6 +62,58 @@ class ScreenGrabber:
     def __init__(self) -> None:
         self._is_windows = platform.system() == "Windows"
         self._mock_image: Optional[Image.Image] = None
+        self.pinned_hwnd: Optional[int] = None
+        self.pinned_title: str = ""
+
+    def pin_window(self, hwnd: int, title: str = "") -> None:
+        """Pin a specific Hermes CMS window to guarantee targeted capture."""
+        self.pinned_hwnd = hwnd
+        self.pinned_title = title or f"HWND_{hwnd}"
+        logger.info(f"Target window pinned: '{self.pinned_title}' (HWND: {self.pinned_hwnd})")
+
+    def unpin_window(self) -> None:
+        """Unpin target window and revert to dynamic active window detection."""
+        logger.info(f"Unpinned window '{self.pinned_title}'")
+        self.pinned_hwnd = None
+        self.pinned_title = ""
+
+    def get_window_under_cursor(self) -> Optional[Tuple[int, str]]:
+        """Identify the top-level application window under the mouse cursor."""
+        if not self._is_windows:
+            return None
+
+        try:
+            import win32gui
+            import win32process
+
+            pt = wintypes.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+            hwnd = ctypes.windll.user32.WindowFromPoint(pt)
+            if not hwnd:
+                return None
+
+            try:
+                root_hwnd = win32gui.GetAncestor(hwnd, 2)  # GA_ROOT = 2
+            except Exception:
+                root_hwnd = hwnd
+
+            if not root_hwnd or not win32gui.IsWindow(root_hwnd):
+                return None
+
+            # Ignore our own app windows
+            current_pid = os.getpid()
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(root_hwnd)
+                if pid == current_pid:
+                    return None
+            except Exception:
+                pass
+
+            title = win32gui.GetWindowText(root_hwnd)
+            return (root_hwnd, title)
+        except Exception as e:
+            logger.debug(f"Could not get window under cursor: {e}")
+            return None
 
     def set_test_mock_image(self, image: Optional[Image.Image]) -> None:
         """Inject a mock image for headless environments or automated unit tests."""
@@ -303,7 +355,11 @@ class ScreenGrabber:
                 return w >= min_width and h >= min_height
 
             target_hwnd = None
-            if fg_hwnd and is_valid_target(fg_hwnd):
+
+            # Priority 0: Explicitly pinned Hermes window
+            if self.pinned_hwnd and is_valid_target(self.pinned_hwnd):
+                target_hwnd = self.pinned_hwnd
+            elif fg_hwnd and is_valid_target(fg_hwnd):
                 target_hwnd = fg_hwnd
 
             # If foreground window was our floating overlay or too small:

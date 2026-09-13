@@ -24,6 +24,10 @@ class FloatingOverlay(tk.Toplevel):
         on_scan: Optional[Callable[[], None]] = None,
         on_open_session: Optional[Callable[[], None]] = None,
         on_exit: Optional[Callable[[], None]] = None,
+        on_toggle_auto: Optional[Callable[[bool], None]] = None,
+        on_pick_window: Optional[Callable[[], None]] = None,
+        on_calibrate_button: Optional[Callable[[], None]] = None,
+        on_set_delay: Optional[Callable[[float], None]] = None,
         initial_x: Optional[int] = None,
         initial_y: Optional[int] = None,
     ) -> None:
@@ -41,6 +45,10 @@ class FloatingOverlay(tk.Toplevel):
         self.on_scan = on_scan
         self.on_open_session = on_open_session
         self.on_exit = on_exit
+        self.on_toggle_auto = on_toggle_auto
+        self.on_pick_window = on_pick_window
+        self.on_calibrate_button = on_calibrate_button
+        self.on_set_delay = on_set_delay
 
         # Window state tracking
         self._drag_start_x = 0
@@ -49,9 +57,13 @@ class FloatingOverlay(tk.Toplevel):
         self._pulse_count = 0
         self._pulse_timer: Optional[str] = None
         self._restore_timer: Optional[str] = None
+        self._countdown_timer: Optional[str] = None
+        self._auto_enabled = True
+        self._current_delay = 1.0
+        self._pinned_title = ""
 
         # Widget Dimensions
-        self.widget_width = 320
+        self.widget_width = 390
         self.widget_height = 44
 
         # Configure window properties
@@ -138,6 +150,42 @@ class FloatingOverlay(tk.Toplevel):
         btn_frame = tk.Frame(self.bg_frame, bg="#0F172A")
         btn_frame.pack(side=tk.RIGHT, padx=(0, 6))
 
+        # Auto-Scan Toggle Button
+        self.btn_auto = tk.Button(
+            btn_frame,
+            text="⚡ Auto",
+            font=("Segoe UI", 7, "bold"),
+            fg="#FFFFFF",
+            bg="#D97706",  # Amber for ON
+            activebackground="#B45309",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            bd=0,
+            padx=5,
+            pady=2,
+            cursor="hand2",
+            command=self._handle_toggle_auto,
+        )
+        self.btn_auto.pack(side=tk.LEFT, padx=1)
+
+        # Pin / Target Window Button
+        self.btn_pin = tk.Button(
+            btn_frame,
+            text="🎯",
+            font=("Segoe UI", 8),
+            fg="#38BDF8",
+            bg="#1E293B",
+            activebackground="#0284C7",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            bd=0,
+            padx=5,
+            pady=2,
+            cursor="hand2",
+            command=self._handle_pick_window,
+        )
+        self.btn_pin.pack(side=tk.LEFT, padx=1)
+
         # Scan Button (Primary Action)
         self.btn_scan = tk.Button(
             btn_frame,
@@ -149,7 +197,7 @@ class FloatingOverlay(tk.Toplevel):
             activeforeground="#FFFFFF",
             relief=tk.FLAT,
             bd=0,
-            padx=8,
+            padx=7,
             pady=2,
             cursor="hand2",
             command=self._handle_scan_click,
@@ -167,12 +215,12 @@ class FloatingOverlay(tk.Toplevel):
             activeforeground="#FFFFFF",
             relief=tk.FLAT,
             bd=0,
-            padx=6,
+            padx=5,
             pady=2,
             cursor="hand2",
             command=self._handle_open_session,
         )
-        self.btn_session.pack(side=tk.LEFT, padx=2)
+        self.btn_session.pack(side=tk.LEFT, padx=1)
 
         # Close / Exit Button
         self.btn_close = tk.Button(
@@ -190,7 +238,39 @@ class FloatingOverlay(tk.Toplevel):
             cursor="hand2",
             command=self._handle_exit,
         )
-        self.btn_close.pack(side=tk.LEFT, padx=(2, 0))
+        self.btn_close.pack(side=tk.LEFT, padx=(1, 0))
+
+        # 4. Context Menu (Right Click)
+        self._init_context_menu()
+
+    def _init_context_menu(self) -> None:
+        """Create right-click context menu for quick auto-scan and calibration settings."""
+        self.menu = tk.Menu(self, tearoff=0, bg="#1E293B", fg="#F8FAFC", activebackground="#0284C7", activeforeground="#FFFFFF")
+        self.menu.add_command(label="🎯 Ghim cửa sổ Hermes (Click để chọn)", command=self._handle_pick_window)
+        self.menu.add_command(label="📍 Chấm vị trí nút Confirm trên Hermes", command=self._handle_calibrate_button)
+        self.menu.add_separator()
+        self.auto_menu_var = tk.BooleanVar(value=True)
+        self.menu.add_checkbutton(label="⚡ Tự động quét khi bấm Confirm", variable=self.auto_menu_var, command=self._handle_toggle_auto)
+
+        delay_menu = tk.Menu(self.menu, tearoff=0, bg="#1E293B", fg="#F8FAFC", activebackground="#0284C7", activeforeground="#FFFFFF")
+        for d in [0.5, 1.0, 1.5, 2.0]:
+            delay_menu.add_command(label=f"{d}s", command=lambda delay=d: self._handle_set_delay(delay))
+        self.menu.add_cascade(label="⏱ Độ trễ chờ Hermes (Delay)", menu=delay_menu)
+
+        self.menu.add_separator()
+        self.menu.add_command(label="📋 Mở Quản lý phiên làm việc", command=self._handle_open_session)
+        self.menu.add_command(label="✕ Thoát ứng dụng", command=self._handle_exit)
+
+        # Bind right click on all overlay components
+        for w in (self, self.bg_frame, self.grip_label, self.status_label):
+            w.bind("<Button-3>", self._show_context_menu)
+
+    def _show_context_menu(self, event: tk.Event) -> None:
+        """Display right-click context menu at cursor position."""
+        try:
+            self.menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.menu.grab_release()
 
     # -------------------------------------------------------------------------
     # Drag and Drop Handlers
@@ -272,14 +352,55 @@ class FloatingOverlay(tk.Toplevel):
         # Auto restore to READY after 2.5 seconds
         self._restore_timer = self.after(2500, self.set_state_ready)
 
+    def set_state_countdown(self, seconds: float) -> None:
+        """Visual countdown feedback when a Confirm action is detected in Hermes."""
+        self._cancel_timers()
+        self._is_scanning = False
+        remaining = [seconds]
+
+        def _step() -> None:
+            if remaining[0] <= 0.1:
+                self.set_state_scanning()
+            else:
+                self.status_label.config(text=f"⏳ Chờ {remaining[0]:.1f}s", fg="#F59E0B")
+                self.bg_frame.config(highlightbackground="#F59E0B")
+                remaining[0] -= 0.2
+                self._countdown_timer = self.after(200, _step)
+
+        _step()
+
+    def set_pinned_title(self, title: str) -> None:
+        """Update overlay UI reflecting currently pinned Hermes target window."""
+        self._pinned_title = title
+        if title:
+            short = title[:11] + ".." if len(title) > 11 else title
+            self.btn_pin.config(bg="#059669", fg="#FFFFFF")
+            self.status_label.config(text=f"🎯 {short}", fg="#38BDF8")
+        else:
+            self.btn_pin.config(bg="#1E293B", fg="#38BDF8")
+            self.set_state_ready()
+
+    def set_auto_enabled(self, enabled: bool) -> None:
+        """Synchronize Auto-scan toggle state and update button appearance."""
+        self._auto_enabled = enabled
+        if hasattr(self, "auto_menu_var"):
+            self.auto_menu_var.set(enabled)
+        if enabled:
+            self.btn_auto.config(text="⚡ Auto", bg="#D97706")
+        else:
+            self.btn_auto.config(text="⚡ Off", bg="#334155")
+
     def _cancel_timers(self) -> None:
-        """Cancel any running pulse or restore timers."""
+        """Cancel any running pulse, restore, or countdown timers."""
         if self._pulse_timer:
             self.after_cancel(self._pulse_timer)
             self._pulse_timer = None
         if self._restore_timer:
             self.after_cancel(self._restore_timer)
             self._restore_timer = None
+        if self._countdown_timer:
+            self.after_cancel(self._countdown_timer)
+            self._countdown_timer = None
 
     # -------------------------------------------------------------------------
     # Button Callbacks
@@ -289,6 +410,33 @@ class FloatingOverlay(tk.Toplevel):
         if self.on_scan and not self._is_scanning:
             self.set_state_scanning()
             self.on_scan()
+
+    def _handle_toggle_auto(self) -> None:
+        """Toggle automatic scan on Confirm."""
+        new_state = not self._auto_enabled
+        self.set_auto_enabled(new_state)
+        if self.on_toggle_auto:
+            self.on_toggle_auto(new_state)
+
+    def _handle_pick_window(self) -> None:
+        """Enter window picker mode."""
+        self.status_label.config(text="🎯 Click vào Hermes", fg="#F59E0B")
+        if self.on_pick_window:
+            self.on_pick_window()
+
+    def _handle_calibrate_button(self) -> None:
+        """Enter Confirm button calibration mode."""
+        self.status_label.config(text="📍 Click nút Confirm", fg="#F59E0B")
+        if self.on_calibrate_button:
+            self.on_calibrate_button()
+
+    def _handle_set_delay(self, delay: float) -> None:
+        """Set capture delay after confirm action."""
+        self._current_delay = delay
+        self.status_label.config(text=f"⏱ Delay: {delay}s", fg="#38BDF8")
+        if self.on_set_delay:
+            self.on_set_delay(delay)
+        self.after(1500, self.set_state_ready)
 
     def _handle_open_session(self) -> None:
         """Handle click on Session Manager button."""
