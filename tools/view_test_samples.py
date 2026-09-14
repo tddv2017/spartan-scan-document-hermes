@@ -125,13 +125,24 @@ class HermesSampleViewer:
             self.lbl_image.config(image=self.photo_cache)
 
         # Update info text
-        status_str = "🟢 ĐÃ DUYỆT (ALL IMP/ACC HAWB)" if s["expected_status"] == "CLEARED" else (
-            "🔴 LỖI CHECKSUM MOD-7" if "ERROR" in s["expected_status"] else "🟡 CHƯA DUYỆT HAWB / DIRECT"
-        )
+        dest = s.get("destination", "SGN")
+        if dest != "SGN":
+            dest_display = f"🔴 {dest} (SAI ĐIỂM ĐẾN - BÁO ĐỎ)"
+        else:
+            dest_display = "🟢 SGN (Tân Sơn Nhất)"
+
+        if s["expected_status"] == "DESTINATION_MISMATCH":
+            status_str = f"🔴 BÁO ĐỎ: SAI ĐIỂM ĐẾN ({dest} != SGN)"
+        elif s["expected_status"] == "CLEARED":
+            status_str = "🟢 ĐÃ DUYỆT (ALL IMP/ACC HAWB)"
+        elif "ERROR" in s["expected_status"]:
+            status_str = "🔴 LỖI CHECKSUM MOD-7"
+        else:
+            status_str = "🟡 CHƯA DUYỆT HAWB / DIRECT"
 
         note_str = f" | Ghi chú: {s['note']}" if "note" in s else ""
         info_text = (
-            f"Mẫu: {s['id']} | Hãng bay: {s['airline']} | Trạng thái: {status_str}{note_str}\n"
+            f"Mẫu: {s['id']} | Hãng: {s['airline']} | Điểm đến: {dest_display} | Trạng thái: {status_str}{note_str}\n"
             f"AWB: {s['awb_number']} | Số kiện: {s['pieces']} | Trọng lượng: {s['weight_kg']} KG\n"
             f"Consignee: {s['consignee']} | Agent: {s['agent']}\n"
             f"Remark: {s['remark']}"

@@ -105,6 +105,7 @@ def generate_50_fixtures():
         weight_kg=2406.0,
         pieces_label="129",
         weight_label="2406.0",
+        destination="SGN",
         consignee="VIETNAM BESTAR TOOLS CO LTD",
         agent="IMP - PRIVATE IMPORTER",
         remark="NO DOCS//CFM//KHACH XIN TBHD 12MAY",
@@ -113,7 +114,7 @@ def generate_50_fixtures():
         is_valid_mod7=True,
         expected_status="PENDING_HAWB",
         airline_name="Cathay Cargo",
-        description="Mẫu thực tế Hermes H5 (Cathay Cargo 160-11327083, 129 pcs, 2406.0 kg, Vietnam Bestar Tools)"
+        description="Mẫu thực tế Hermes H5 (Cathay Cargo 160-11327083, Dest SGN, 129 pcs, 2406.0 kg, Vietnam Bestar Tools)"
     )
     fixtures.append(smp01)
 
@@ -122,19 +123,27 @@ def generate_50_fixtures():
         prefix, airline = random.choice(AIRLINES)
         
         # Determine case type:
-        # 2-35: Valid Mod7 + ALL IMP/ACC HAWB (CLEARED)
-        # 36-45: Valid Mod7 + Other Remarks (PENDING_HAWB / DIRECT)
-        # 46-50: Invalid Mod7 checksum (CHECKSUM_WARNING)
+        # 2-35: Valid Mod7 + Dest SGN + ALL IMP/ACC HAWB (CLEARED - Green)
+        # 36-40: Valid Mod7 + Dest SGN + Other Remarks (PENDING_HAWB / DIRECT)
+        # 41-45: Valid Mod7 + Dest != SGN (DESTINATION_MISMATCH - BÁO ĐỎ)
+        # 46-50: Invalid Mod7 checksum (CHECKSUM_ERROR - BÁO ĐỎ)
+        dest = "SGN"
         if i <= 35:
             is_valid = True
             has_cleared = True
             remark = random.choice(REMARKS_CLEARED)
             expected_status = "CLEARED"
-        elif i <= 45:
+        elif i <= 40:
             is_valid = True
             has_cleared = False
             remark = random.choice(REMARKS_OTHER)
             expected_status = "PENDING_HAWB" if ("HAWB" in remark or "DOCS" in remark) else "DIRECT"
+        elif i <= 45:
+            is_valid = True
+            has_cleared = random.choice([True, False])
+            dest = random.choice(["HAN", "DAD", "PQC", "HPH"])
+            remark = random.choice(REMARKS_CLEARED if has_cleared else REMARKS_OTHER)
+            expected_status = "DESTINATION_MISMATCH"
         else:
             is_valid = False
             has_cleared = random.choice([True, False])
@@ -164,6 +173,7 @@ def generate_50_fixtures():
             weight_kg=weight,
             pieces_label=pieces_label,
             weight_label=weight_label,
+            destination=dest,
             consignee=consignee,
             agent=agent,
             remark=remark,
@@ -172,7 +182,7 @@ def generate_50_fixtures():
             is_valid_mod7=is_valid,
             expected_status=expected_status,
             airline_name=airline,
-            description=f"Mẫu số {i:02d} - Hãng {airline} - Trạng thái: {expected_status}"
+            description=f"Mẫu số {i:02d} - Hãng {airline} - Dest: {dest} - Trạng thái: {expected_status}"
         )
         fixtures.append(fixture)
         
@@ -201,6 +211,7 @@ def main():
             "filename": img_filename,
             "awb_number": fix.awb_number,
             "airline": fix.airline_name,
+            "destination": fix.destination,
             "pieces": fix.pieces,
             "weight_kg": fix.weight_kg,
             "consignee": fix.consignee,

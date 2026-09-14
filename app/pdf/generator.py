@@ -541,13 +541,17 @@ def generate_cargo_handover_pdf(
             )
             cnee_cell = Paragraph(f"<b>{cnee_text}</b>{agent_text}", cell_left)
 
+            dest_code = getattr(rec, "destination", "SGN")
+
             # Status and Remark cell
-            if is_cleared:
+            if not rec.is_valid_checksum:
+                status_badge = "<font color='#DC2626'><b>✖ LỖI CHECKSUM</b></font>"
+            elif dest_code != "SGN":
+                status_badge = f"<font color='#DC2626'><b>⛔ SAI ĐIỂM ĐẾN ({dest_code})</b></font>"
+            elif is_cleared:
                 status_badge = "<font color='#059669'><b>✔ ALL IMP/ACC HAWB</b></font>"
             elif rec.status_tag == BusinessStatus.PENDING_HAWB:
                 status_badge = "<font color='#D97706'><b>⏳ PENDING HAWB</b></font>"
-            elif rec.status_tag == BusinessStatus.CHECKSUM_ERROR:
-                status_badge = "<font color='#DC2626'><b>✖ LỖI CHECKSUM</b></font>"
             else:
                 status_badge = "<font color='#2563EB'><b>✈ DIRECT SHIPMENT</b></font>"
 
@@ -561,11 +565,17 @@ def generate_cargo_handover_pdf(
 
             status_cell = Paragraph(f"{status_badge}{remark_detail}", cell_remark)
 
-            # AWB Number cell with checksum warning if invalid
+            # AWB Number cell with destination tag
             awb_display = html.escape(rec.awb_number)
             if not rec.is_valid_checksum:
                 awb_display += " <font color='#DC2626' size='6.5'>[ERR]</font>"
-            awb_cell = Paragraph(f"<b>{awb_display}</b>", cell_awb)
+
+            if dest_code == "SGN":
+                dest_tag = "<br/><font size='6.5' color='#059669'>Dest: SGN</font>"
+            else:
+                dest_tag = f"<br/><font size='6.5' color='#DC2626'><b>Dest: {dest_code} (SAI)</b></font>"
+
+            awb_cell = Paragraph(f"<b>{awb_display}</b>{dest_tag}", cell_awb)
 
             # Pieces & Weight
             pcs_str = f"{rec.pieces:,}" if rec.pieces is not None else "-"
@@ -582,7 +592,10 @@ def generate_cargo_handover_pdf(
             ])
 
             # Apply row styling
-            if is_cleared:
+            if dest_code != "SGN":
+                # Soft red accent for wrong destination
+                tstyle.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#FEF2F2")))
+            elif is_cleared:
                 # Soft green accent for cleared rows
                 tstyle.append(("BACKGROUND", (0, row_idx), (-1, row_idx), c_cleared_bg))
             else:

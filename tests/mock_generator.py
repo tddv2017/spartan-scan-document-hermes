@@ -32,6 +32,7 @@ class HermesFixture:
     is_valid_mod7: bool
     expected_status: str
     airline_name: str = "Lufthansa Cargo"
+    destination: str = "SGN"
     description: str = ""
 
     @property
@@ -210,6 +211,23 @@ OPERATIONAL_FIXTURES: List[HermesFixture] = [
         expected_status="CHECKSUM_ERROR",
         description="Deliberate IATA Modulo-7 checksum mismatch (2468135 mod 7 = 5 != 9).",
     ),
+    HermesFixture(
+        fixture_id="FIX-11",
+        awb_number="020-54321094",
+        pieces=25,
+        weight_kg=450.0,
+        pieces_label="25 PCS",
+        weight_label="450.00 KG",
+        consignee="SAMSUNG ELECTRONICS VIETNAM THAI NGUYEN",
+        agent="HAN - NCTS LOGISTICS",
+        destination="HAN",
+        remark="ALL IMP/ACC HAWB - ARRIVED AT WRONG HUB (HAN)",
+        remark_agent="HAN/CARGO-OPS",
+        has_all_imp_acc_hawb=True,
+        is_valid_mod7=True,
+        expected_status="DESTINATION_MISMATCH",
+        description="Shipment destined for HAN (Noi Bai) scanned at SGN terminal, triggering DESTINATION_MISMATCH red alert.",
+    ),
 ]
 
 
@@ -309,11 +327,15 @@ def generate_mock_screen(
     draw.rectangle([(170, y_pos - 4), (960, y_pos + 28)], fill="#FFFFFF", outline="#7F9DB9", width=2)
     draw.text((185, y_pos), fixture.consignee, fill="#000000", font=font_input)
 
-    # Row 3: Handling Agent & Origin / Destination
+    # Row 3: Handling Agent & Destination
     y_pos = 220
     draw.text((45, y_pos), "Handling Agent:", fill="#111111", font=font_field)
-    draw.rectangle([(170, y_pos - 4), (960, y_pos + 28)], fill="#FFFFFF", outline="#7F9DB9", width=2)
+    draw.rectangle([(170, y_pos - 4), (680, y_pos + 28)], fill="#FFFFFF", outline="#7F9DB9", width=2)
     draw.text((185, y_pos), fixture.agent, fill="#000000", font=font_input)
+
+    draw.text((710, y_pos), "Dest:", fill="#111111", font=font_field)
+    draw.rectangle([(770, y_pos - 4), (960, y_pos + 28)], fill="#FFFFFF", outline="#7F9DB9", width=2)
+    draw.text((785, y_pos), fixture.destination, fill="#000000", font=font_input_bold)
 
     # Row 4: Remarks Text Area & Operational Status
     y_pos = 280
@@ -406,7 +428,11 @@ def generate_hermes_h5_screen(
         draw.rectangle([(230, y_pos - 2), (230 + w, y_pos + 19)], fill="#FFFFFF", outline="#7F9DB9")
         draw.text((236, y_pos), str(val), fill="#000000", font=f_input)
 
-    draw_field("Origin (AOO)", "HGH   Hangzhou", y, 180)
+    draw_field("Origin (AOO)", "HGH   Hangzhou", y, 160)
+    draw.text((440, y), "Dest (AOD)", fill="#000000", font=f_reg)
+    dest_str = f"{fixture.destination}   Tan Son Nhat" if fixture.destination == "SGN" else f"{fixture.destination}   Airport"
+    draw.rectangle([(540, y - 2), (760, y + 19)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((546, y), dest_str, fill="#000000", font=f_input)
     y += 28
     draw_field("Customs Information Code", "T Total Consignment Manifested", y, 280)
     y += 28

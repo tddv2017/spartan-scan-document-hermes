@@ -235,6 +235,7 @@ class SessionStore:
         pending_cnt = 0
         direct_cnt = 0
         checksum_cnt = 0
+        dest_mismatch_cnt = 0
         edited_cnt = 0
 
         for r in records:
@@ -251,6 +252,8 @@ class SessionStore:
                 direct_cnt += 1
             elif r.status_tag == BusinessStatus.CHECKSUM_ERROR:
                 checksum_cnt += 1
+            elif r.status_tag == BusinessStatus.DESTINATION_MISMATCH:
+                dest_mismatch_cnt += 1
 
             if r.is_manually_edited:
                 edited_cnt += 1
@@ -263,6 +266,7 @@ class SessionStore:
             pending_hawb_count=pending_cnt,
             direct_count=direct_cnt,
             checksum_error_count=checksum_cnt,
+            dest_mismatch_count=dest_mismatch_cnt,
             manually_edited_count=edited_cnt,
             session_start=start_time,
             session_last_update=last_update,

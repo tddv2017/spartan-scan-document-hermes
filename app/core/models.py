@@ -19,6 +19,7 @@ class BusinessStatus(str, Enum):
     PENDING_HAWB = "PENDING_HAWB"            # Consolidation missing full HAWB acceptance (Orange)
     DIRECT_SHIPMENT = "DIRECT_SHIPMENT"      # Direct MAWB, no house bills (Blue)
     CHECKSUM_ERROR = "CHECKSUM_ERROR"        # Failed IATA Modulo-7 check digit (Red)
+    DESTINATION_MISMATCH = "DESTINATION_MISMATCH"  # Airport of Destination is not SGN (Red Alert)
 
 
 class ExtractionResult(BaseModel):
@@ -30,6 +31,7 @@ class ExtractionResult(BaseModel):
     awb_prefix: str = Field(default="", description="3-digit airline prefix (e.g. 020)")
     awb_serial: str = Field(default="", description="8-digit serial and check digit")
     awb_number: str = Field(default="", description="Canonical AWB number (e.g. 020-12345674)")
+    destination: str = Field(default="SGN", description="Airport of Destination code (e.g. SGN, HAN)")
     pieces: Optional[int] = Field(default=None, description="Number of pieces/colli")
     weight_kg: Optional[float] = Field(default=None, description="Gross weight in kilograms")
     consignee: str = Field(default="", description="Consignee company/recipient name")
@@ -61,6 +63,7 @@ class AWBRecord(BaseModel):
     awb_number: str = Field(..., description="Canonical hyphenated AWB number (e.g. 020-12345674)")
     prefix: str = Field(default="020", description="3-digit airline prefix")
     serial: str = Field(default="", description="8-digit serial component")
+    destination: str = Field(default="SGN", description="Airport of Destination code (e.g. SGN, HAN)")
     airline_name: str = Field(default="Lufthansa Cargo", description="Airline carrier identity")
     is_valid_checksum: bool = Field(default=True, description="IATA Modulo-7 check digit validity")
     pieces: Optional[int] = Field(default=None, ge=0, description="Package / Colli count")
@@ -91,11 +94,14 @@ class AWBRecord(BaseModel):
         prefix = result.awb_prefix or (result.awb_number.split("-")[0] if "-" in result.awb_number else DEFAULT_AIRLINE_PREFIX)
         serial = result.awb_serial or (result.awb_number.split("-")[1] if "-" in result.awb_number else "")
         carrier = airline_name or AIRLINE_PREFIX_MAP.get(prefix, DEFAULT_AIRLINE_NAME)
+        dest = (result.destination or "SGN").strip().upper()
 
         # Determine status if not explicitly passed
         if status_tag is None:
             if not result.is_valid_checksum:
                 computed_status = BusinessStatus.CHECKSUM_ERROR
+            elif dest != "SGN":
+                computed_status = BusinessStatus.DESTINATION_MISMATCH
             elif result.has_all_imp_acc_hawb:
                 computed_status = BusinessStatus.CLEARED
             elif any(k in result.remark.upper() for k in ["HAWB", "HOUSE", "CONSOL", "PARTIAL"]):
@@ -109,6 +115,7 @@ class AWBRecord(BaseModel):
             awb_number=result.awb_number,
             prefix=prefix,
             serial=serial,
+            destination=dest,
             airline_name=carrier,
             is_valid_checksum=result.is_valid_checksum,
             pieces=result.pieces,
@@ -136,6 +143,7 @@ class SessionSummary(BaseModel):
     pending_hawb_count: int = 0
     direct_count: int = 0
     checksum_error_count: int = 0
+    dest_mismatch_count: int = 0
     manually_edited_count: int = 0
     session_start: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     session_last_update: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

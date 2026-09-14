@@ -248,3 +248,19 @@ class TestMockScreens100PercentAccuracy:
         assert parsed.is_valid_checksum == fixture.is_valid_mod7, (
             f"[{fixture.fixture_id}] Mod-7 validity mismatch: expected {fixture.is_valid_mod7}, got {parsed.is_valid_checksum}"
         )
+
+        # Assertion 6: Destination airport code must match
+        assert parsed.destination == fixture.destination, (
+            f"[{fixture.fixture_id}] Destination mismatch: expected {fixture.destination}, got {parsed.destination}\n"
+            f"Raw text:\n{ocr_res.full_text}"
+        )
+
+    def test_extract_destination_explicit_labels(self, parser: HermesDataParser) -> None:
+        """Tests parsing destination from various Hermes screen formats."""
+        assert parser.extract_destination("Dest (AOD): SGN Ho Chi Minh") == "SGN"
+        assert parser.extract_destination("Dest (AOD)\nHAN\nHa Noi") == "HAN"
+        assert parser.extract_destination("Destination: DAD") == "DAD"
+        assert parser.extract_destination("Dest: PQC") == "PQC"
+        assert parser.extract_destination("Routing: HGH-SGN") == "SGN"
+        assert parser.extract_destination("FRA/HAN") == "HAN"
+        assert parser.extract_destination("AWB 020-12345675") == "SGN"  # Default fallback

@@ -137,6 +137,17 @@ class TestClassificationPrecedence:
         )
         assert status == BusinessStatus.CHECKSUM_ERROR
 
+    def test_rule_destination_mismatch_yields_red_alert(self) -> None:
+        """Any destination other than SGN must yield DESTINATION_MISMATCH (Red alert) even with clearance."""
+        for non_sgn in ["HAN", "DAD", "PQC", "HPH", "SIN", "BKK"]:
+            status = BusinessRuleClassifier.classify(
+                has_all_imp_acc_hawb=True,
+                is_valid_checksum=True,
+                remark_text="ALL IMP/ACC HAWB - DOCS DELIVERED",
+                destination=non_sgn,
+            )
+            assert status == BusinessStatus.DESTINATION_MISMATCH
+
     def test_rule_2_valid_clearance_grants_cleared_status(self) -> None:
         """Valid checksum + un-negated clearance flag must yield CLEARED."""
         status = BusinessRuleClassifier.classify(
@@ -205,11 +216,22 @@ class TestModelClassifiers:
     def test_classify_record_cleared(self) -> None:
         rec = AWBRecord(
             awb_number="020-12345675",
+            destination="SGN",
             is_valid_checksum=True,
             has_all_imp_acc_hawb=True,
             raw_remarks="ALL IMP/ACC HAWB - PASSED",
         )
         assert BusinessRuleClassifier.classify_record(rec) == BusinessStatus.CLEARED
+
+    def test_classify_record_destination_mismatch(self) -> None:
+        rec = AWBRecord(
+            awb_number="020-12345675",
+            destination="HAN",
+            is_valid_checksum=True,
+            has_all_imp_acc_hawb=True,
+            raw_remarks="ALL IMP/ACC HAWB",
+        )
+        assert BusinessRuleClassifier.classify_record(rec) == BusinessStatus.DESTINATION_MISMATCH
 
     def test_classify_record_checksum_error(self) -> None:
         rec = AWBRecord(
@@ -223,11 +245,22 @@ class TestModelClassifiers:
     def test_classify_extraction_pending(self) -> None:
         ext = ExtractionResult(
             awb_number="020-87654324",
+            destination="SGN",
             is_valid_checksum=True,
             has_all_imp_acc_hawb=False,
             remark="CONSOLIDATION CARGO",
         )
         assert BusinessRuleClassifier.classify_extraction(ext) == BusinessStatus.PENDING_HAWB
+
+    def test_classify_extraction_destination_mismatch(self) -> None:
+        ext = ExtractionResult(
+            awb_number="020-87654324",
+            destination="DAD",
+            is_valid_checksum=True,
+            has_all_imp_acc_hawb=True,
+            remark="ALL IMP/ACC HAWB",
+        )
+        assert BusinessRuleClassifier.classify_extraction(ext) == BusinessStatus.DESTINATION_MISMATCH
 
 
 class TestBadgeMetadata:
@@ -240,6 +273,7 @@ class TestBadgeMetadata:
             (BusinessStatus.PENDING_HAWB, "#FD7E14", "!"),
             (BusinessStatus.DIRECT_SHIPMENT, "#0D6EFD", "—"),
             (BusinessStatus.CHECKSUM_ERROR, "#DC3545", "✗"),
+            (BusinessStatus.DESTINATION_MISMATCH, "#DC2626", "⛔"),
         ],
     )
     def test_badge_metadata_colors_and_symbols(

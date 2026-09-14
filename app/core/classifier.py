@@ -15,12 +15,12 @@ class BusinessRuleClassifier:
 
     # Robust regex for ALL IMP/ACC HAWB matching across spacing, slashes, backslashes, pipes, and OCR artifacts
     CANONICAL_CLEARANCE_REGEX = re.compile(
-        r"(?i)\b(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-]\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
+        r"(?i)\b(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-I1l!]?\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
     )
 
     # Negation patterns that disqualify clearance even if the words appear
     NEGATION_PREFIX_REGEX = re.compile(
-        r"(?i)\b(?:NOT|NON|PARTIAL|UN|WAITING\s+FOR|PENDING)\s+(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-]\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
+        r"(?i)\b(?:NOT|NON|PARTIAL|UN|WAITING\s+FOR|PENDING)\s+(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-I1l!]?\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
     )
 
     # Consolidation keywords indicating a shipment has multiple House Air Waybills
@@ -85,20 +85,28 @@ class BusinessRuleClassifier:
         has_all_imp_acc_hawb: bool,
         is_valid_checksum: bool,
         remark_text: str = "",
+        destination: str = "SGN",
     ) -> BusinessStatus:
-        """Classifies a record into one of 4 discrete business statuses.
+        """Classifies a record into discrete business statuses.
 
         Precedence rules:
-        1. Checksum error takes highest operational warning precedence.
-        2. Clearance flag (ALL IMP/ACC HAWB) grants CLEARED status.
-        3. Consolidation indicators without clearance flag yield PENDING_HAWB.
-        4. Standard single shipments without consolidation indicators are DIRECT_SHIPMENT.
+        1. Checksum error takes highest operational warning precedence (Red).
+        2. Destination mismatch (Destination is NOT SGN) triggers immediate RED alert.
+        3. Clearance flag (ALL IMP/ACC HAWB) grants CLEARED status (Green).
+        4. Consolidation indicators without clearance flag yield PENDING_HAWB (Orange).
+        5. Standard single shipments without consolidation indicators are DIRECT_SHIPMENT (Blue).
         """
         # Rule 1: Modulo-7 checksum failure
         if not is_valid_checksum:
             return BusinessStatus.CHECKSUM_ERROR
 
-        # Rule 2: Re-verify clearance flag with text if provided
+        # Rule 2: Destination check - must match SGN (Tan Son Nhat)
+        # Any destination other than SGN triggers immediate RED alert ("ngoài SGN báo đỏ hết")
+        dest_code = (destination or "SGN").strip().upper()
+        if dest_code != "SGN":
+            return BusinessStatus.DESTINATION_MISMATCH
+
+        # Rule 3: Re-verify clearance flag with text if provided
         verified_clearance = has_all_imp_acc_hawb
         if remark_text:
             if cls.NEGATION_PREFIX_REGEX.search(remark_text):
@@ -109,11 +117,11 @@ class BusinessRuleClassifier:
         if verified_clearance:
             return BusinessStatus.CLEARED
 
-        # Rule 3: Check if this is a consolidation shipment lacking full clearance
+        # Rule 4: Check if this is a consolidation shipment lacking full clearance
         if cls.is_consolidation_shipment(remark_text):
             return BusinessStatus.PENDING_HAWB
 
-        # Rule 4: Direct Master Air Waybill shipment
+        # Rule 5: Direct Master Air Waybill shipment
         return BusinessStatus.DIRECT_SHIPMENT
 
     @classmethod
@@ -123,6 +131,7 @@ class BusinessRuleClassifier:
             has_all_imp_acc_hawb=record.has_all_imp_acc_hawb,
             is_valid_checksum=record.is_valid_checksum,
             remark_text=record.raw_remarks,
+            destination=record.destination,
         )
 
     @classmethod
@@ -132,6 +141,7 @@ class BusinessRuleClassifier:
             has_all_imp_acc_hawb=result.has_all_imp_acc_hawb,
             is_valid_checksum=result.is_valid_checksum,
             remark_text=result.remark,
+            destination=result.destination,
         )
 
     @classmethod
@@ -169,6 +179,14 @@ class BusinessRuleClassifier:
                 "fg_color": "#FFFFFF",
                 "symbol": "✗",
                 "description": "Số AWB không khớp thuật toán IATA Mod-7. Cần kiểm tra đối chiếu.",
+            },
+            BusinessStatus.DESTINATION_MISMATCH: {
+                "label": "SAI ĐIỂM ĐẾN (KHÔNG PHẢI SGN)",
+                "label_vn": "SAI ĐIỂM ĐẾN (!= SGN)",
+                "bg_color": "#DC2626",
+                "fg_color": "#FFFFFF",
+                "symbol": "⛔",
+                "description": "Điểm đến của vận đơn không phải SGN. Báo đỏ cảnh báo nhầm hàng/nhầm trạm!",
             },
         }
         return badge_configs.get(

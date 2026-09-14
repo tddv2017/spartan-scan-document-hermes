@@ -238,9 +238,9 @@ class SessionManagerWindow(tk.Toplevel):
         self.combo_filter = ttk.Combobox(
             toolbar,
             textvariable=self.filter_var,
-            values=["Tất Cả", "CLEARED", "PENDING_HAWB", "DIRECT_SHIPMENT", "CHECKSUM_ERROR"],
+            values=["Tất Cả", "CLEARED", "PENDING_HAWB", "DIRECT_SHIPMENT", "CHECKSUM_ERROR", "DESTINATION_MISMATCH"],
             state="readonly",
-            width=15,
+            width=18,
             font=("Segoe UI", 9),
         )
         self.combo_filter.pack(side=tk.LEFT, padx=2)
@@ -356,6 +356,7 @@ class SessionManagerWindow(tk.Toplevel):
         columns = (
             "stt",
             "awb_number",
+            "dest",
             "pieces",
             "weight_kg",
             "consignee",
@@ -376,6 +377,7 @@ class SessionManagerWindow(tk.Toplevel):
         # Column Headings & Widths
         self.tree.heading("stt", text="#", anchor=tk.CENTER)
         self.tree.heading("awb_number", text="Số AWB", anchor=tk.CENTER)
+        self.tree.heading("dest", text="Điểm Đến (Dest)", anchor=tk.CENTER)
         self.tree.heading("pieces", text="Kiện (Colli)", anchor=tk.E)
         self.tree.heading("weight_kg", text="Trọng Lượng (KG)", anchor=tk.E)
         self.tree.heading("consignee", text="Người Nhận (Consignee)", anchor=tk.W)
@@ -385,15 +387,16 @@ class SessionManagerWindow(tk.Toplevel):
         self.tree.heading("remark", text="Ghi Chú (Remark)", anchor=tk.W)
         self.tree.heading("time", text="Thời Điểm", anchor=tk.CENTER)
 
-        self.tree.column("stt", width=36, minwidth=30, anchor=tk.CENTER)
+        self.tree.column("stt", width=36, minwidth=28, anchor=tk.CENTER)
         self.tree.column("awb_number", width=105, minwidth=90, anchor=tk.CENTER)
+        self.tree.column("dest", width=105, minwidth=85, anchor=tk.CENTER)
         self.tree.column("pieces", width=75, minwidth=60, anchor=tk.E)
         self.tree.column("weight_kg", width=95, minwidth=70, anchor=tk.E)
-        self.tree.column("consignee", width=190, minwidth=140, anchor=tk.W)
-        self.tree.column("agent", width=130, minwidth=100, anchor=tk.W)
-        self.tree.column("hawb_status", width=125, minwidth=100, anchor=tk.CENTER)
+        self.tree.column("consignee", width=180, minwidth=130, anchor=tk.W)
+        self.tree.column("agent", width=125, minwidth=90, anchor=tk.W)
+        self.tree.column("hawb_status", width=120, minwidth=95, anchor=tk.CENTER)
         self.tree.column("status", width=120, minwidth=90, anchor=tk.CENTER)
-        self.tree.column("remark", width=180, minwidth=120, anchor=tk.W)
+        self.tree.column("remark", width=170, minwidth=110, anchor=tk.W)
         self.tree.column("time", width=75, minwidth=65, anchor=tk.CENTER)
 
         # Scrollbars
@@ -413,6 +416,7 @@ class SessionManagerWindow(tk.Toplevel):
         self.tree.tag_configure("PENDING_HAWB", background="#FFFBEB", foreground="#B45309")
         self.tree.tag_configure("DIRECT_SHIPMENT", background="#EFF6FF", foreground="#1D4ED8")
         self.tree.tag_configure("CHECKSUM_ERROR", background="#FEF2F2", foreground="#991B1B")
+        self.tree.tag_configure("DESTINATION_MISMATCH", background="#FEE2E2", foreground="#DC2626")
 
         # Bind events
         self.tree.bind("<Double-1>", lambda e: self._handle_edit())
@@ -475,6 +479,8 @@ class SessionManagerWindow(tk.Toplevel):
                     time_display = rec.timestamp[:8]
 
             hawb_badge = "✔ ALL IMP/ACC" if rec.has_all_imp_acc_hawb else "-"
+            dest_code = rec.destination or "SGN"
+            dest_str = f"🟢 {dest_code}" if dest_code == "SGN" else f"⛔ {dest_code} (SAI)"
 
             self.tree.insert(
                 "",
@@ -483,6 +489,7 @@ class SessionManagerWindow(tk.Toplevel):
                 values=(
                     str(displayed_count),
                     rec.awb_number,
+                    dest_str,
                     pcs_str,
                     wt_str,
                     rec.consignee or "-",
@@ -507,6 +514,7 @@ class SessionManagerWindow(tk.Toplevel):
         """Recalculate and display session statistics."""
         summary: SessionSummary = self.store.get_summary()
 
+        dest_warn = f"  │  ⛔ Sai Điểm Đến: {summary.dest_mismatch_count}" if summary.dest_mismatch_count > 0 else ""
         stats_text = (
             f"📊 Tổng AWB: {summary.total_records}  │  "
             f"Tổng Kiện: {summary.total_pieces:,} Colli  │  "
@@ -514,6 +522,7 @@ class SessionManagerWindow(tk.Toplevel):
             f"Đã duyệt HAWB (ALL IMP): {summary.cleared_count}/{summary.total_records} ({summary.cleared_ratio:.1f}%)  │  "
             f"Chờ HAWB: {summary.pending_hawb_count}  │  "
             f"Lỗi Checksum: {summary.checksum_error_count}"
+            f"{dest_warn}"
         )
         self.lbl_stats.config(text=stats_text)
 
@@ -679,6 +688,13 @@ class EditRecordDialog(tk.Toplevel):
         self.ent_cnee.grid(row=row, column=1, sticky="w", pady=4)
         row += 1
 
+        # Destination
+        tk.Label(frame, text="Điểm Đến (Dest):", font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", pady=4)
+        self.ent_dest = tk.Entry(frame, font=("Segoe UI", 9), width=28)
+        self.ent_dest.insert(0, getattr(self.record, "destination", "SGN"))
+        self.ent_dest.grid(row=row, column=1, sticky="w", pady=4)
+        row += 1
+
         # Agent
         tk.Label(frame, text="Đại Lý (Agent):", font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", pady=4)
         self.ent_agt = tk.Entry(frame, font=("Segoe UI", 9), width=28)
@@ -710,7 +726,7 @@ class EditRecordDialog(tk.Toplevel):
         curr_status = self.record.status_tag.value if hasattr(self.record.status_tag, "value") else str(self.record.status_tag)
         self.combo_status = ttk.Combobox(
             frame,
-            values=["CLEARED", "PENDING_HAWB", "DIRECT_SHIPMENT", "CHECKSUM_ERROR"],
+            values=["CLEARED", "PENDING_HAWB", "DIRECT_SHIPMENT", "CHECKSUM_ERROR", "DESTINATION_MISMATCH"],
             state="readonly",
             width=26,
             font=("Segoe UI", 9),
@@ -773,8 +789,11 @@ class EditRecordDialog(tk.Toplevel):
         except Exception:
             status_enum = BusinessStatus.DIRECT_SHIPMENT
 
+        dest_val = self.ent_dest.get().strip().upper() or "SGN"
+
         self.result_updates = {
             "awb_number": awb,
+            "destination": dest_val,
             "pieces": pcs,
             "weight_kg": wt,
             "consignee": self.ent_cnee.get().strip(),

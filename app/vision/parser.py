@@ -135,12 +135,20 @@ class HermesDataParser:
         r"(?i)\b(?:shipment\s+remarks?|special\s+handling\s*[\/|\\]\s*remarks?|handling\s+remarks?|special\s+remarks?|osi|ssr|remarks?)\b(?:\s*[:\-])?\s*[\r\n]*\s*([^\r\n]+)"
     )
 
-    # Critical Business Clearance Flag: ALL IMP/ACC HAWB (supports tightly clustered OCR tokens like ACCHAWB)
+    # Destination & Routing patterns (supports Dest (AOD), Destination, Dest: SGN, routing HGH-SGN)
+    DESTINATION_PATTERN = re.compile(
+        r"(?i)\b(?:dest(?:ination)?(?:\s*\([^\)]*\))?|aod|airport\s+of\s+dest(?:ination)?)(?:\s*[:\-])?\s*([A-Z]{3})\b"
+    )
+    ROUTING_DEST_PATTERN = re.compile(
+        r"(?i)\b(?:routing|route|flight)?\s*[:\-]?\s*[A-Z]{3}\s*[\-\/]\s*([A-Z]{3})\b"
+    )
+
+    # Critical Business Clearance Flag: ALL IMP/ACC HAWB (supports tightly clustered OCR tokens like ACCHAWB or pipe as I)
     CLEARANCE_FLAG_PATTERN = re.compile(
-        r"(?i)\b(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-]\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
+        r"(?i)\b(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-I1l!]?\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
     )
     CLEARANCE_NEGATION_PATTERN = re.compile(
-        r"(?i)\b(?:NOT|NON|PARTIAL|UN|WAITING\s+FOR|PENDING)\s+(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-]\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
+        r"(?i)\b(?:NOT|NON|PARTIAL|UN|WAITING\s+FOR|PENDING)\s+(?:ALL|A[L1I]{2})\s*(?:IMP|[I1L]MP)\s*[\/\\|\-I1l!]?\s*(?:ACC|A[C0]{2})\s*(?:HAWB|HAW[B8])\b"
     )
     CANONICAL_CLEARANCE_REGEX = CLEARANCE_FLAG_PATTERN
 
@@ -345,6 +353,30 @@ class HermesDataParser:
 
         return bool(self.CLEARANCE_FLAG_PATTERN.search(text))
 
+    def extract_destination(self, text: str) -> str:
+        """Extract 3-letter IATA Airport of Destination code (e.g. 'SGN', 'HAN', 'DAD').
+
+        Defaults to 'SGN' (Tan Son Nhat) if not explicitly present on screen.
+        """
+        if not text:
+            return "SGN"
+
+        # Explicit Dest / Destination / Dest (AOD) label
+        m_dest = self.DESTINATION_PATTERN.search(text)
+        if m_dest:
+            code = m_dest.group(1).upper()
+            if code not in {"AOD", "AOO", "AWB", "FWB", "IMP", "ACC", "EXP", "PCS", "WGT", "KGS"}:
+                return code
+
+        # Routing pair (e.g. HGH-SGN, FRA/SGN)
+        m_route = self.ROUTING_DEST_PATTERN.search(text)
+        if m_route:
+            code = m_route.group(1).upper()
+            if code not in {"AOD", "AOO", "AWB", "FWB", "IMP", "ACC", "EXP", "PCS", "WGT", "KGS"}:
+                return code
+
+        return "SGN"
+
     # ---------------------------------------------------------------------
     # Top-Level Orchestration
     # ---------------------------------------------------------------------
@@ -360,6 +392,7 @@ class HermesDataParser:
         pieces, weight_kg = self.extract_pieces_and_weight(ocr_text)
         consignee = self.extract_consignee(ocr_text)
         agent = self.extract_agent(ocr_text)
+        destination = self.extract_destination(ocr_text)
         remark, remark_agent = self.extract_remarks(ocr_text)
         has_clearance = self.extract_clearance_flag(ocr_text)
 
@@ -374,6 +407,7 @@ class HermesDataParser:
             awb_prefix=prefix,
             awb_serial=serial,
             awb_number=awb_number,
+            destination=destination,
             pieces=pieces,
             weight_kg=weight_kg,
             consignee=consignee,
