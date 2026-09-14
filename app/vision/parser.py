@@ -103,36 +103,36 @@ class HermesDataParser:
         r"(?i)(?:colli|pieces?|pcs|pkg|colis)?\s*[:=]?\s*(\d+)\s*(?:colli|pieces?|pcs|pkg|colis)?\s*[\/|\\]\s*(?:(?:gross\s*)?w(?:eigh)?t(?:[\s\.]*\(?kg\)?)?)?\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos)?"
     )
 
-    # Individual Pieces patterns
+    # Individual Pieces patterns (supports both Classic Hermes and Hermes H5 'Pcs.(NPX)/RcVd(NPR)')
     PIECES_LABELED_PATTERN = re.compile(
-        r"(?i)\b(?:colli|pieces?|pcs|pkg|colis|total\s+pcs|manifested\s+pcs|recv\s+pcs)\s*[:=\.\-\s]\s*(\d+)\b"
+        r"(?i)\b(?:colli|pieces?|pcs|pkg|colis|total\s+pcs|manifested\s+pcs|recv\s+pcs|pcs[\s\.]*\(?npx\)?(?:\s*[\/|\\]\s*rcvd?[\s\.]*\(?npr\)?)?)\s*[:=\.\-\s]\s*(\d+)\b"
     )
     PIECES_POSTFIX_PATTERN = re.compile(
         r"(?i)\b(\d+)\s*(?:colli|pieces?|pcs|colis)\b"
     )
 
-    # Individual Weight patterns
+    # Individual Weight patterns (supports both Classic Hermes and Hermes H5 'Wgt.(GWX)/Rcvd(GWR)', 'Chargeable Weight')
     WEIGHT_LABELED_PATTERN = re.compile(
-        r"(?i)\b(?:gross\s*)?w(?:eigh)?t(?:[\s\.]*\(?kg\)?)?\s*[:=\.\-\s]\s*(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos)?\b"
+        r"(?i)\b(?:(?:gross\s*)?w(?:eigh)?t(?:[\s\.]*\(?kg\)?)?|wgt[\s\.]*\(?gw[x]?\)?(?:\s*[\/|\\]\s*rcvd?[\s\.]*\(?gwr\)?)?|chargeable\s+weight)\s*[:=\.\-\s]\s*(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos)?\b"
     )
     WEIGHT_POSTFIX_PATTERN = re.compile(
         r"(?i)\b(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos)\b"
     )
 
-    # Consignee & Agent patterns
+    # Consignee & Agent patterns (supports both colon-delimited and Hermes H5 newline-separated fields)
     CONSIGNEE_PATTERN = re.compile(
-        r"(?i)\b(?:consignee|cnee|deliver\s+to|recipient|to\s+order\s+of)\s*[:\-]\s*([^\r\n]{3,100})"
+        r"(?i)\b(?:consignee|cnee|deliver\s+to|recipient|to\s+order\s+of)\b(?:\s*[:\-])?\s*[\r\n]*\s*([^\r\n]{3,100})"
     )
     AGENT_PATTERN = re.compile(
-        r"(?i)\b(?:agent|forwarder|agt|issuing\s+agent|handling\s+agent)\s*[:\-]\s*([^\r\n]{3,100})"
+        r"(?i)\b(?:agent|forwarder|agt|issuing\s+agent|handling\s+agent)\b(?:\s*[:\-])?\s*[\r\n]*\s*([^\r\n]{2,100})"
     )
 
-    # Remarks & Remark Agent patterns
+    # Remarks & Remark Agent patterns (supports Classic Hermes, Hermes H5 'Shipment Remarks', etc.)
     REMARK_AGENT_PATTERN = re.compile(
         r"(?i)\b(?:remark\s+agent|agent\s+remarks?|agt\s+rmk)\s*[:\-]\s*([^\r\n]+)"
     )
     REMARKS_PATTERN = re.compile(
-        r"(?i)\b(?:remarks?|handling\s+remarks?|osi|ssr|special\s+remarks?)\s*[:\-]\s*([^\r\n]+)"
+        r"(?i)\b(?:shipment\s+remarks?|special\s+handling\s*[\/|\\]\s*remarks?|handling\s+remarks?|special\s+remarks?|osi|ssr|remarks?)\b(?:\s*[:\-])?\s*[\r\n]*\s*([^\r\n]+)"
     )
 
     # Critical Business Clearance Flag: ALL IMP/ACC HAWB (supports tightly clustered OCR tokens like ACCHAWB)
@@ -241,9 +241,11 @@ class HermesDataParser:
         if not text:
             return ""
 
-        match = self.CONSIGNEE_PATTERN.search(text)
-        if match:
+        for match in self.CONSIGNEE_PATTERN.finditer(text):
             raw = match.group(1).strip()
+            # If matched line is another field label, skip
+            if re.match(r"(?i)^(?:agent|required|customs?|pcs|wgt|weight|origin|commodity)\b", raw):
+                continue
             # Clean common terminal noise (address lines, phone numbers)
             cleaned = re.split(r"(?i)\b(?:address|tel|phone|fax|tax|attn|city)\b", raw)[0]
             cleaned = re.sub(r"[\s\-_:,;]+$", "", cleaned).strip()
@@ -257,12 +259,23 @@ class HermesDataParser:
         if not text:
             return ""
 
-        match = self.AGENT_PATTERN.search(text)
-        if match:
+        for match in self.AGENT_PATTERN.finditer(text):
             raw = match.group(1).strip()
+            if re.match(r"(?i)^(?:consignee|required|customs?|pcs|wgt|weight|commodity|standing)\b", raw):
+                continue
             # Clean trailing agent codes (e.g., 37-4-1234 or IATA code)
             cleaned = re.split(r"(?i)\b(?:code|iata|acct|acc|tel|phone)\b", raw)[0]
             cleaned = re.sub(r"[\s\-_:,;]+$", "", cleaned).strip()
+
+            # In Hermes H5, agent often has code + description on next line (e.g. 'IMP \n PRIVATE IMPORTER')
+            pos = match.end(1)
+            rest = text[pos:].lstrip()
+            lines = [l.strip() for l in rest.splitlines() if l.strip()]
+            if lines:
+                next_l = lines[0]
+                if not re.search(r"(?i)\b(?:required|customs?|action|pcs|wgt|weight|commodity|consignee|standing)\b", next_l):
+                    if any(kw in next_l.upper() for kw in ["IMPORTER", "AGENT", "LOGISTICS", "FORWARDING", "CARGO", "EXPRESS", "AIR", "PRIVATE"]):
+                        cleaned = f"{cleaned} - {next_l}"
             if len(cleaned) >= 2:
                 return cleaned
 
@@ -286,9 +299,29 @@ class HermesDataParser:
             remark_agent = m_agt_rmk.group(1).strip()
 
         # Extract general remark
-        m_rmk = self.REMARKS_PATTERN.search(text)
-        if m_rmk:
-            remark = m_rmk.group(1).strip()
+        tab_names = {
+            "customs", "routing", "general", "house awb", "special cargo",
+            "charges", "history", "participants", "details and charges", "confirmation",
+            "log book", "messages"
+        }
+        candidates = []
+        for m in self.REMARKS_PATTERN.finditer(text):
+            val = m.group(1).strip()
+            val = re.sub(r"^[:\-\s]+", "", val).strip()
+            if not val:
+                continue
+            if val.lower() in tab_names:
+                continue
+            candidates.append(val)
+
+        if candidates:
+            # Prioritize matches that contain business keywords
+            best = candidates[-1]
+            for c in candidates:
+                if self.CLEARANCE_FLAG_PATTERN.search(c) or any(kw in c.upper() for kw in ["HAWB", "CONSOL", "DOCS", "DIRECT", "CFM", "CLEARED", "HOLD"]):
+                    best = c
+                    break
+            remark = best
         else:
             # Check if clearance flag exists anywhere in text
             flag_match = self.CLEARANCE_FLAG_PATTERN.search(text)

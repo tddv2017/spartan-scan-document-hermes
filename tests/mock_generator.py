@@ -337,6 +337,154 @@ def generate_mock_screen(
     return img
 
 
+def generate_hermes_h5_screen(
+    fixture: HermesFixture,
+    width: int = 1024,
+    height: int = 680,
+) -> Image.Image:
+    """Renders an authentic Hermes H5 (Hermes 5 Cargo Management System) application window.
+
+    Directly replicates the live Hermes H5 UI layout:
+    - Dark title bar with 'h5 AWB {prefix}-{serial[:4]} {serial[4:]}' and 'Q Search'
+    - 'AWB Detail' and 'Confirmed' header
+    - MAWB: [ {prefix} ] -- [ {serial[:4]} {serial[4:]} ] FWB
+    - Tab bar: [Confirmation] [Participants] [Details and Charges]
+    - Origin (AOO), Customs Info, Commodity, Special Handle Code (SHC)
+    - Consignee, Agent, Required Custom Action
+    - Pcs. (NPX) / Rcvd (NPR): [ {pieces} ] [ {pieces} ] Manifested {pieces}
+    - Wgt.(GWX) / Rcvd (GWR): [ {weight_kg:.1f} ] [ {weight_kg:.1f} ] {weight_kg:.1f}
+    - Chargeable Weight: [ {weight_kg:.1f} ]
+    - Consignee Standing Inst.: BESTARTOOLS.VN@GMAIL.COM...
+    - Shipment Remarks: [ {remark} ]
+    - Hermes H5 Action Buttons: [SR] [Messages] [Charges] [History] [Customs Msgs] [Billable Cust] [Reprint Rel. Note] [Print FWB]
+    - Bottom F-keys: F2, F3, F4, F5, F6, F7
+    """
+    img = Image.new("RGB", (width, height), color="#D6D3CE")
+    draw = ImageDraw.Draw(img)
+
+    f_title = _get_system_font("tahomabd.ttf", 14)
+    f_header = _get_system_font("tahomabd.ttf", 15)
+    f_reg = _get_system_font("tahoma.ttf", 13)
+    f_reg_b = _get_system_font("tahomabd.ttf", 13)
+    f_input = _get_system_font("tahoma.ttf", 13)
+
+    # 1. Title bar (Dark Slate Gray)
+    draw.rectangle([(0, 0), (width, 28)], fill="#4A5568")
+    s_split = f"{fixture.awb_serial[:4]} {fixture.awb_serial[4:]}"
+    draw.text((10, 5), f"h5 AWB {fixture.awb_prefix}-{s_split}", fill="#FFFFFF", font=f_title)
+    # Search box
+    draw.rectangle([(width - 150, 4), (width - 15, 24)], fill="#FFFFFF", outline="#CBD5E1")
+    draw.text((width - 130, 6), "Q Search", fill="#64748B", font=f_reg)
+
+    # 2. Window Header
+    draw.text((15, 34), "AWB Detail", fill="#1E293B", font=f_header)
+    draw.text((width - 120, 34), "Confirmed", fill="#0F766E", font=f_header)
+
+    # 3. MAWB row
+    draw.text((15, 60), "MAWB:", fill="#000000", font=f_reg_b)
+    draw.rectangle([(75, 58), (125, 80)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((83, 60), fixture.awb_prefix, fill="#000000", font=f_input)
+    draw.text((130, 60), "--", fill="#000000", font=f_reg)
+    draw.rectangle([(145, 58), (265, 80)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((155, 60), s_split, fill="#000000", font=f_input)
+    draw.text((275, 60), "FWB", fill="#1E293B", font=f_reg)
+
+    # 4. Tab strip
+    draw.rectangle([(15, 88), (120, 108)], fill="#FFFFFF", outline="#CBD5E1")
+    draw.text((22, 91), "Confirmation", fill="#000000", font=f_reg_b)
+    draw.rectangle([(122, 88), (220, 108)], fill="#E2E8F0", outline="#CBD5E1")
+    draw.text((130, 91), "Participants", fill="#475569", font=f_reg)
+    draw.rectangle([(222, 88), (360, 108)], fill="#E2E8F0", outline="#CBD5E1")
+    draw.text((230, 91), "Details and Charges", fill="#475569", font=f_reg)
+
+    # Main Form Panel
+    draw.rectangle([(15, 108), (width - 15, height - 90)], fill="#F8FAFC", outline="#CBD5E1")
+
+    y = 120
+    def draw_field(label: str, val: str, y_pos: int, w: int = 420) -> None:
+        draw.text((30, y_pos), label, fill="#000000", font=f_reg)
+        draw.rectangle([(230, y_pos - 2), (230 + w, y_pos + 19)], fill="#FFFFFF", outline="#7F9DB9")
+        draw.text((236, y_pos), str(val), fill="#000000", font=f_input)
+
+    draw_field("Origin (AOO)", "HGH   Hangzhou", y, 180)
+    y += 28
+    draw_field("Customs Information Code", "T Total Consignment Manifested", y, 280)
+    y += 28
+    draw_field("Commodity", "PLASTIC HANDLE HS", y, 280)
+    y += 28
+    draw_field("Special Handle Code(SHC)", "EAP,ECC,SPX", y, 200)
+    y += 28
+    draw_field("Consignee", fixture.consignee, y, 520)
+    y += 28
+    draw_field("Agent", fixture.agent, y, 520)
+    y += 28
+    draw_field("Required Custom Action", "Simple entry", y, 180)
+    y += 34
+
+    # Pcs. (NPX) / Rcvd (NPR)
+    draw.text((30, y), "Pcs. (NPX) / Rcvd (NPR)", fill="#000000", font=f_reg)
+    draw.rectangle([(230, y - 2), (300, y + 19)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((245, y), str(fixture.pieces), fill="#000000", font=f_input)
+    draw.rectangle([(310, y - 2), (380, y + 19)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((325, y), str(fixture.pieces), fill="#000000", font=f_input)
+    draw.text((395, y), f"Manifested {fixture.pieces}", fill="#0284C7", font=f_reg)
+    y += 28
+
+    # Delivered
+    draw.text((30, y), "Delivered", fill="#000000", font=f_reg)
+    draw.rectangle([(230, y - 2), (300, y + 19)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((395, y), str(fixture.pieces), fill="#64748B", font=f_reg)
+    y += 28
+
+    # Wgt.(GWX) / Rcvd (GWR)
+    draw.text((30, y), "Wgt.(GWX) / Rcvd (GWR)", fill="#000000", font=f_reg)
+    draw.rectangle([(230, y - 2), (300, y + 19)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((238, y), f"{fixture.weight_kg:.1f}", fill="#000000", font=f_input)
+    draw.rectangle([(310, y - 2), (380, y + 19)], fill="#FFFFFF", outline="#7F9DB9")
+    draw.text((318, y), f"{fixture.weight_kg:.1f}", fill="#000000", font=f_input)
+    draw.text((395, y), f"{fixture.weight_kg:.1f}", fill="#0284C7", font=f_reg)
+    y += 28
+
+    # Chargeable Weight
+    draw_field("Chargeable Weight", f"{fixture.weight_kg:.1f}", y, 100)
+    y += 28
+
+    # Consignee Standing Inst.
+    draw.text((30, y), "Consignee Standing Inst.", fill="#000000", font=f_reg)
+    draw.text((236, y), "BESTARTOOLS.VN@GMAIL.COM, MS LIEN: 0383...", fill="#DC2626", font=f_input)
+    y += 28
+
+    # Shipment Remarks
+    draw_field("Shipment Remarks", fixture.remark, y, 650)
+
+    # 5. Action Buttons Grid
+    by1 = height - 85
+    buttons_row1 = ["SR", "Messages", "Charges", "History", "Log Book"]
+    bx = 30
+    for b in buttons_row1:
+        draw.rectangle([(bx, by1), (bx + 85, by1 + 22)], fill="#E2E8F0", outline="#94A3B8")
+        draw.text((bx + 12, by1 + 3), b, fill="#0F172A", font=f_reg)
+        bx += 95
+
+    by2 = height - 58
+    buttons_row2 = ["Customs Msgs", "Billable Cust", "Reprint Rel. Note", "Print FWB"]
+    bx = 30
+    for b in buttons_row2:
+        draw.rectangle([(bx, by2), (bx + 125, by2 + 22)], fill="#E2E8F0", outline="#94A3B8")
+        draw.text((bx + 10, by2 + 3), b, fill="#0F172A", font=f_reg)
+        bx += 135
+
+    # 6. Bottom F-Keys Bar
+    draw.rectangle([(0, height - 30), (width, height)], fill="#1E293B")
+    f_keys = ["F2 Info", "F3 Edit", "F4 Copy", "F5 Refresh", "F6 Query", "F7 Exit"]
+    fx = 20
+    for fk in f_keys:
+        draw.text((fx, height - 24), fk, fill="#94A3B8", font=f_reg)
+        fx += 110
+
+    return img
+
+
 def get_all_fixtures() -> List[HermesFixture]:
     """Returns all 10 authoritative Hermes CMS operational fixtures."""
     return list(OPERATIONAL_FIXTURES)

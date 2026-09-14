@@ -109,6 +109,9 @@ FLAG_ALL_IMP_ACC_HAWB = "ALL IMP/ACC HAWB"
 
 # Hermes CMS Window Title Patterns for targeted window capture
 HERMES_WINDOW_TITLE_PATTERNS = [
+    "h5 AWB",
+    "h5",
+    "AWB Detail",
     "Hermes",
     "CMS",
     "Lufthansa",
